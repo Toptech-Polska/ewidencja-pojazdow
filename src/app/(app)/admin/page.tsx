@@ -81,8 +81,8 @@ export default async function AdminPage() {
                       </div>
                     </td>
                     <td className="text-slate-500 text-xs">{p.email}</td>
-                    <td><span className={`badge ${ROLE_BADGE[p.role]}`}>{ROLE_LABELS[p.role]}</span></td>
-                    <td className="text-xs text-slate-500">{ROLE_PERMS[p.role]}</td>
+                    <td><span className={`badge ${ROLE_BADGE[p.role as UserRole]}`}>{ROLE_LABELS[p.role as UserRole]}</span></td>
+                    <td className="text-xs text-slate-500">{ROLE_PERMS[p.role as UserRole]}</td>
                     <td>
                       {p.is_active
                         ? <span className="badge badge-ok">Aktywny</span>
