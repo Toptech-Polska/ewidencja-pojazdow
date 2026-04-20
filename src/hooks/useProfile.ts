@@ -17,6 +17,8 @@ interface UseProfileReturn {
   canManageVehicles: boolean
   canViewReports: boolean
   canManageUsers: boolean
+  canViewSimulation: boolean
+  canManageDriverProfiles: boolean
 }
 
 export function useProfile(): UseProfileReturn {
@@ -54,10 +56,12 @@ export function useProfile(): UseProfileReturn {
     isAccountant:  role === 'ksiegowosc',
     isDriver:      role === 'kierowca',
     isAuditor:     role === 'kontrola',
-    canAddTrips:      ['administrator', 'ksiegowosc', 'kierowca'].includes(role ?? ''),
-    canConfirmTrips:  ['administrator', 'ksiegowosc'].includes(role ?? ''),
-    canManageVehicles:['administrator'].includes(role ?? ''),
-    canViewReports:   ['administrator', 'ksiegowosc', 'kontrola'].includes(role ?? ''),
-    canManageUsers:   ['administrator'].includes(role ?? ''),
+    canAddTrips:             ['administrator', 'ksiegowosc', 'kierowca'].includes(role ?? ''),
+    canConfirmTrips:         ['administrator', 'ksiegowosc'].includes(role ?? ''),
+    canManageVehicles:       ['administrator'].includes(role ?? ''),
+    canViewReports:          ['administrator', 'ksiegowosc', 'kontrola'].includes(role ?? ''),
+    canManageUsers:          ['administrator'].includes(role ?? ''),
+    canViewSimulation:       ['administrator', 'kierowca'].includes(role ?? ''),
+    canManageDriverProfiles: ['administrator', 'kierowca'].includes(role ?? ''),
   }
 }

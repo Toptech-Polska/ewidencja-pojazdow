@@ -5,13 +5,28 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/hooks/useProfile'
 
-const NAV = [
+interface NavItem {
+  href: string
+  label: string
+  icon: string
+  badge?: string
+  adminOnly?: boolean
+  driverOrAdmin?: boolean
+}
+
+interface NavGroup {
+  group: string
+  items: NavItem[]
+}
+
+const NAV: NavGroup[] = [
   {
     group: 'Główne',
     items: [
       { href: '/dashboard',  label: 'Dashboard',       icon: '▦' },
       { href: '/pojazdy',    label: 'Pojazdy',          icon: '◈' },
       { href: '/wpisy',      label: 'Ewidencja',        icon: '≡', badge: 'pending' },
+      { href: '/symulacja',  label: 'Symulacja',        icon: '⟳', driverOrAdmin: true },
     ],
   },
   {
@@ -24,6 +39,12 @@ const NAV = [
     group: 'Compliance',
     items: [
       { href: '/compliance', label: 'VAT-26 / Alerty',  icon: '!', badge: 'vat26' },
+    ],
+  },
+  {
+    group: 'Konto',
+    items: [
+      { href: '/profil',     label: 'Mój profil',       icon: '◉' },
     ],
   },
   {
@@ -42,7 +63,7 @@ interface SidebarProps {
 export function Sidebar({ pendingCount = 0, vat26Count = 0 }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { profile, isAdmin } = useProfile()
+  const { profile, isAdmin, canViewSimulation } = useProfile()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -72,8 +93,10 @@ export function Sidebar({ pendingCount = 0, vat26Count = 0 }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto">
         {NAV.map(group => {
-          // Filtruj pozycje admin-only
-          const items = group.items.filter(i => !i.adminOnly || isAdmin)
+          const items = group.items.filter(i =>
+            (!i.adminOnly || isAdmin) &&
+            (!i.driverOrAdmin || canViewSimulation)
+          )
           if (!items.length) return null
 
           return (

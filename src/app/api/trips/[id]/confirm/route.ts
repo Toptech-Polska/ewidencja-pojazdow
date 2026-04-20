@@ -9,6 +9,11 @@ export async function PATCH(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { data: profile } = await supabase
+    .schema('vat_km').from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['administrator', 'ksiegowosc'].includes(profile.role))
+    return NextResponse.json({ error: 'Brak uprawnień do potwierdzania wpisów' }, { status: 403 })
+
   const { data, error } = await supabase
     .schema('vat_km')
     .from('trip_entries')

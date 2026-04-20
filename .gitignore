@@ -34,3 +34,14 @@ Thumbs.db
 .supabase/
 supabase/.branches
 supabase/.temp
+
+# E2E / Playwright
+e2e/
+playwright.config.ts
+test-results/
+playwright-report/
+.env.e2e
+env.e2e
+
+# Claude Code
+.claude/

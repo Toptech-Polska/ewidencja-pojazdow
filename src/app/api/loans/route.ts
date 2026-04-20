@@ -19,6 +19,11 @@ export async function POST(req: NextRequest) {
   if (authError || !user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { data: profile } = await supabase
+    .schema('vat_km').from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['administrator', 'ksiegowosc', 'kierowca'].includes(profile.role))
+    return NextResponse.json({ error: 'Brak uprawnień do dodawania udostępnień' }, { status: 403 })
+
   const body = await req.json()
   const parsed = LoanSchema.safeParse(body)
 

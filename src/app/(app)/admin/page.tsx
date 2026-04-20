@@ -1,6 +1,8 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Topbar } from '@/components/layout/Topbar'
-import type { UserRole } from '@/types/database'
+import { AdminUsersClient } from './AdminUsersClient'
+import type { UserRole, Profile } from '@/types/database'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   administrator: 'Administrator',
@@ -43,10 +45,25 @@ function PermBadge({ val }: { val: string }) {
 export default async function AdminPage() {
   const supabase = await createClient()
 
+  // Guard: tylko administrator może wejść na tę stronę
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: currentProfile } = await supabase
+    .schema('vat_km')
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (currentProfile?.role !== 'administrator') {
+    redirect('/dashboard')
+  }
+
   const { data: profiles } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('*')
+    .select('id, full_name, email, role, is_active, created_at')
     .order('full_name')
 
   return (
@@ -58,48 +75,8 @@ export default async function AdminPage() {
         <div className="card">
           <div className="card-head">
             <span className="card-title">Użytkownicy systemu</span>
-            <button className="btn-primary text-xs py-1.5 px-3">+ Dodaj użytkownika</button>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Użytkownik</th><th>Email</th><th>Rola</th>
-                <th>Uprawnienia</th><th>Status</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(profiles ?? []).map(p => {
-                const initials = p.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                return (
-                  <tr key={p.id}>
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold flex-shrink-0">
-                          {initials}
-                        </div>
-                        <span className="font-semibold text-slate-800">{p.full_name}</span>
-                      </div>
-                    </td>
-                    <td className="text-slate-500 text-xs">{p.email}</td>
-                    <td><span className={`badge ${ROLE_BADGE[p.role as UserRole]}`}>{ROLE_LABELS[p.role as UserRole]}</span></td>
-                    <td className="text-xs text-slate-500">{ROLE_PERMS[p.role as UserRole]}</td>
-                    <td>
-                      {p.is_active
-                        ? <span className="badge badge-ok">Aktywny</span>
-                        : <span className="badge badge-gray">Nieaktywny</span>
-                      }
-                    </td>
-                    <td>
-                      <button className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edytuj</button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {!profiles?.length && (
-                <tr><td colSpan={6} className="text-center text-slate-400 py-6 text-sm">Brak użytkowników</td></tr>
-              )}
-            </tbody>
-          </table>
+          <AdminUsersClient profiles={(profiles ?? []) as Profile[]} />
         </div>
 
         {/* Permissions matrix */}

@@ -4,26 +4,19 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Topbar } from '@/components/layout/Topbar'
+import { getLastOdometer } from '@/lib/trips/odometer'
 import type { Vehicle, Profile } from '@/types/database'
 
 async function loadVehiclesAndProfiles() {
   const supabase = createClient()
   const [{ data: veh }, { data: prof }] = await Promise.all([
-    supabase.schema('vat_km').from('vehicles').select('*').eq('status', 'aktywny').order('plate_number'),
-    supabase.schema('vat_km').from('profiles').select('*').eq('is_active', true)
+    supabase.schema('vat_km').from('vehicles').select('id, plate_number, make, model, odometer_start, status').eq('status', 'aktywny').order('plate_number'),
+    supabase.schema('vat_km').from('profiles').select('id, full_name, role').eq('is_active', true)
       .in('role', ['administrator', 'ksiegowosc', 'kierowca']).order('full_name'),
   ])
   return { vehicles: veh ?? [], profiles: prof ?? [] }
 }
 
-async function getLastOdometer(vehicleId: string, odometerStart: number): Promise<number> {
-  const supabase = createClient()
-  const { data } = await supabase
-    .schema('vat_km').from('trip_entries')
-    .select('odometer_after').eq('vehicle_id', vehicleId)
-    .order('entry_number', { ascending: false }).limit(1).single()
-  return data?.odometer_after ?? odometerStart
-}
 
 function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profile[] }) {
   const router = useRouter()
@@ -42,8 +35,8 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
     if (!f.vehicle_id) return
     const veh = vehicles.find(v => v.id === f.vehicle_id)
     if (!veh) return
-    getLastOdometer(f.vehicle_id, veh.odometer_start).then(odo =>
-      setF(p => ({ ...p, odometer_before: String(odo) }))
+    getLastOdometer(f.vehicle_id, veh.odometer_start).then(({ odometer }) =>
+      setF(p => ({ ...p, odometer_before: String(odometer) }))
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.vehicle_id])
@@ -71,18 +64,22 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   async function handleSubmit() {
     if (!validate()) return
     setSaving(true); setError(null)
-    const res = await fetch('/api/trips', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        vehicle_id: f.vehicle_id, trip_date: f.trip_date, purpose: f.purpose,
-        route_from: f.route_from, route_to: f.route_to,
-        odometer_before: obNum, odometer_after: oaNum,
-        driver_id: f.driver_type === 'internal' ? f.driver_id : undefined,
-        driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
-      }),
-    })
-    if (!res.ok) { const d = await res.json(); setError(d.error ?? 'Błąd zapisu'); setSaving(false); return }
-    setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
+    try {
+      const res = await fetch('/api/trips', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_id: f.vehicle_id, trip_date: f.trip_date, purpose: f.purpose,
+          route_from: f.route_from, route_to: f.route_to,
+          odometer_before: obNum, odometer_after: oaNum,
+          driver_id: f.driver_type === 'internal' ? f.driver_id : undefined,
+          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
+        }),
+      })
+      if (!res.ok) { const d = await res.json(); setError(d.error ?? 'Błąd zapisu'); setSaving(false); return }
+      setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
+    } catch {
+      setError('Błąd połączenia z serwerem'); setSaving(false)
+    }
   }
 
   if (saved) return (
@@ -106,14 +103,14 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           {errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>}
         </div>
         <div>
-          <label className="form-label">Data wyjazdu <span className="text-red-500">*</span></label>
-          <input type="date" className="form-input" value={f.trip_date}
+          <label htmlFor="trip_date" className="form-label">Data wyjazdu <span className="text-red-500">*</span></label>
+          <input id="trip_date" type="date" className="form-input" value={f.trip_date}
             onChange={e => setF(p => ({ ...p, trip_date: e.target.value }))} />
         </div>
       </div>
       <div>
-        <label className="form-label">Cel wyjazdu <span className="text-red-500">*</span></label>
-        <input type="text" className={`form-input ${errs.purpose ? 'form-input-error' : ''}`} value={f.purpose}
+        <label htmlFor="purpose" className="form-label">Cel wyjazdu <span className="text-red-500">*</span></label>
+        <input id="purpose" type="text" className={`form-input ${errs.purpose ? 'form-input-error' : ''}`} value={f.purpose}
           onChange={e => setF(p => ({ ...p, purpose: e.target.value }))}
           placeholder="np. Spotkanie z klientem ABC Sp. z o.o." />
         {errs.purpose ? <p className="form-error">{errs.purpose}</p>
@@ -121,28 +118,28 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Skąd <span className="text-red-500">*</span></label>
-          <input type="text" className={`form-input ${errs.route_from ? 'form-input-error' : ''}`} value={f.route_from}
+          <label htmlFor="route_from" className="form-label">Skąd <span className="text-red-500">*</span></label>
+          <input id="route_from" type="text" className={`form-input ${errs.route_from ? 'form-input-error' : ''}`} value={f.route_from}
             onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} placeholder="np. Bydgoszcz, ul. Długa 10" />
           {errs.route_from && <p className="form-error">{errs.route_from}</p>}
         </div>
         <div>
-          <label className="form-label">Dokąd <span className="text-red-500">*</span></label>
-          <input type="text" className={`form-input ${errs.route_to ? 'form-input-error' : ''}`} value={f.route_to}
+          <label htmlFor="route_to" className="form-label">Dokąd <span className="text-red-500">*</span></label>
+          <input id="route_to" type="text" className={`form-input ${errs.route_to ? 'form-input-error' : ''}`} value={f.route_to}
             onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} placeholder="np. Warszawa, Al. Jana Pawła II 22" />
           {errs.route_to && <p className="form-error">{errs.route_to}</p>}
         </div>
       </div>
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="form-label">Licznik przed wyjazdem <span className="text-red-500">*</span></label>
-          <input type="number" className={`form-input ${errs.odometer_before ? 'form-input-error' : ''}`}
+          <label htmlFor="odometer_before" className="form-label">Licznik przed wyjazdem <span className="text-red-500">*</span></label>
+          <input id="odometer_before" type="number" className={`form-input ${errs.odometer_before ? 'form-input-error' : ''}`}
             value={f.odometer_before} onChange={e => setF(p => ({ ...p, odometer_before: e.target.value }))} />
           {errs.odometer_before && <p className="form-error">{errs.odometer_before}</p>}
         </div>
         <div>
-          <label className="form-label">Licznik po powrocie <span className="text-red-500">*</span></label>
-          <input type="number" className={`form-input ${errs.odometer_after ? 'form-input-error' : ''}`}
+          <label htmlFor="odometer_after" className="form-label">Licznik po powrocie <span className="text-red-500">*</span></label>
+          <input id="odometer_after" type="number" className={`form-input ${errs.odometer_after ? 'form-input-error' : ''}`}
             value={f.odometer_after} onChange={e => setF(p => ({ ...p, odometer_after: e.target.value }))} />
           {errs.odometer_after && <p className="form-error">{errs.odometer_after}</p>}
         </div>
@@ -176,8 +173,8 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           </div>
         ) : (
           <div>
-            <label className="form-label">Imię i nazwisko (zewnętrzny) <span className="text-red-500">*</span></label>
-            <input type="text" className={`form-input ${errs.driver_name_external ? 'form-input-error' : ''}`}
+            <label htmlFor="driver_name_external" className="form-label">Imię i nazwisko (zewnętrzny) <span className="text-red-500">*</span></label>
+            <input id="driver_name_external" type="text" className={`form-input ${errs.driver_name_external ? 'form-input-error' : ''}`}
               value={f.driver_name_external} onChange={e => setF(p => ({ ...p, driver_name_external: e.target.value }))}
               placeholder="Pełne imię i nazwisko" />
             {errs.driver_name_external && <p className="form-error">{errs.driver_name_external}</p>}
@@ -214,8 +211,8 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
     if (!f.vehicle_id) return
     const veh = vehicles.find(v => v.id === f.vehicle_id)
     if (!veh) return
-    getLastOdometer(f.vehicle_id, veh.odometer_start).then(odo =>
-      setF(p => ({ ...p, odometer_at_issue: String(odo) }))
+    getLastOdometer(f.vehicle_id, veh.odometer_start).then(({ odometer }) =>
+      setF(p => ({ ...p, odometer_at_issue: String(odometer) }))
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.vehicle_id])

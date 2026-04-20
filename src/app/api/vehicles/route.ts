@@ -34,11 +34,11 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data
 
-  // Pobierz company_id z profilu zalogowanego użytkownika
+  // Pobierz company_id i rolę z profilu zalogowanego użytkownika
   const { data: profile, error: profileError } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('company_id')
+    .select('company_id, role')
     .eq('id', user.id)
     .single()
 
@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
       { error: 'Nie znaleziono profilu użytkownika. Upewnij się, że konto jest poprawnie skonfigurowane.' },
       { status: 403 },
     )
+  }
+
+  if (!['administrator'].includes(profile.role)) {
+    return NextResponse.json({ error: 'Nie masz uprawnień do dodawania pojazdów.' }, { status: 403 })
   }
 
   const { data, error } = await supabase
