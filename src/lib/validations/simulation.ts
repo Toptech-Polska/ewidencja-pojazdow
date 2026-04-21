@@ -1,14 +1,14 @@
 import { z } from 'zod'
 
 export const SimulationSchema = z.object({
-  vehicle_id:    z.string().uuid('Wybierz pojazd'),
-  startDate:     z.string().date('Podaj prawidłową datę początkową'),
-  endDate:       z.string().date('Podaj prawidłową datę końcową'),
-  tripsPerWeek:  z.number({ invalid_type_error: 'Podaj liczbę wpisów tygodniowo' }).int().min(1).max(14),
-  avgKmPerTrip:  z.number({ invalid_type_error: 'Podaj średni dystans' }).int().min(5).max(500),
+  vehicle_id:   z.string().uuid('Wybierz pojazd'),
+  startDate:    z.string().date('Podaj prawidlowa date poczatkowa'),
+  endDate:      z.string().date('Podaj prawidlowa date koncowa'),
+  tripsPerWeek: z.number({ invalid_type_error: 'Podaj liczbe wpisow tygodniowo' }).int().min(1).max(14),
+  // avgKmPerTrip removed — distances now come from Google Maps Distance Matrix
 })
 .refine(d => d.endDate > d.startDate, {
-  message: 'Data końcowa musi być późniejsza niż początkowa',
+  message: 'Data koncowa musi byc pozniejsza niz poczatkowa',
   path: ['endDate'],
 })
 
