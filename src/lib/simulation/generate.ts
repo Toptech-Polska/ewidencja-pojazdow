@@ -1,4 +1,5 @@
 import type { SimulationParams, SimulatedTripDraft } from './types'
+import type { SimulationLocation } from '@/types/database'
 import { distanceKey } from './maps'
 
 const PURPOSES = [
@@ -7,6 +8,12 @@ const PURPOSES = [
   'Dostawa materialow', 'Wizyta u dostawcy', 'Konferencja branzowa',
   'Przekazanie sprzetu',
 ]
+
+const CORRECTION_PURPOSE   = 'Zaopatrzenie biurowe'
+const CORRECTION_FROM_LABEL   = 'Nowa Sol'
+const CORRECTION_FROM_ADDRESS = 'ul. Parafialna 2, 67-100 Nowa Sol'
+// Correction trip always ends at siedziba — route_to is set dynamically below
+const MIN_CORRECTION_KM = 2  // minimum km reserved for the final correction trip
 
 function seededRand(seed: number): () => number {
   let s = seed
@@ -26,8 +33,21 @@ function daysBetween(from: string, to: string): number {
   return Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000)
 }
 
+interface RawTrip {
+  fromLabel:   string
+  fromAddress: string
+  toLabel:     string
+  toAddress:   string
+  km:          number
+  purpose?:    string
+}
+
 /**
- * Generates trips that sum to exactly targetKm.
+ * Generates trips that:
+ *  - Start at siedziba firmy
+ *  - End at siedziba firmy (via correction trip if needed)
+ *  - Sum to exactly targetKm
+ *
  * distances: preloaded Map from Maps API (distanceKey -> km)
  */
 export function generateTrips(
@@ -42,38 +62,84 @@ export function generateTrips(
 
   const rand = seededRand(vehicleId.charCodeAt(0) * 31 + startOdometer)
 
-  // Build list of valid pairs (those with a known distance)
-  const validPairs: Array<{ fromIdx: number; toIdx: number; km: number }> = []
-  for (let i = 0; i < locations.length; i++) {
-    for (let j = 0; j < locations.length; j++) {
-      if (i === j) continue
-      const km = distances.get(distanceKey(locations[i].address, locations[j].address))
-      if (km && km > 0) validPairs.push({ fromIdx: i, toIdx: j, km })
+  // ── Find siedziba (type === 'siedziba', fallback to first location) ──────────
+  const siedziba: SimulationLocation =
+    locations.find(l => l.type === 'siedziba') ?? locations[0]
+  const others: SimulationLocation[] =
+    locations.filter(l => l.id !== siedziba.id)
+
+  if (others.length === 0) return []
+
+  // ── Build all valid pairs with known distances ───────────────────────────────
+  interface Pair { from: SimulationLocation; to: SimulationLocation; km: number }
+  const allPairs: Pair[] = []
+  for (const from of locations) {
+    for (const to of locations) {
+      if (from.id === to.id) continue
+      const km = distances.get(distanceKey(from.address, to.address))
+      if (km && km > 0) allPairs.push({ from, to, km })
     }
   }
-  if (validPairs.length === 0) return []
+  if (allPairs.length === 0) return []
 
-  // Accumulate trips until we reach targetKm
-  const rawTrips: Array<{ fromIdx: number; toIdx: number; km: number }> = []
+  const rawTrips: RawTrip[] = []
   let accumulated = 0
 
-  // Safety limit: never more than 500 trips
-  while (accumulated < targetKm && rawTrips.length < 500) {
-    const pairIdx = Math.floor(rand() * validPairs.length)
-    const pair = validPairs[pairIdx]
-    const remaining = targetKm - accumulated
+  // ── Phase 1: First trip — siedziba → random other ───────────────────────────
+  const firstTo = others[Math.floor(rand() * others.length)]
+  const firstKm = distances.get(distanceKey(siedziba.address, firstTo.address)) ?? 20
 
-    if (rawTrips.length > 0 && remaining < pair.km) {
-      // Close enough — last trip fills the exact remainder
-      rawTrips.push({ ...pair, km: remaining })
-      accumulated += remaining
-    } else {
-      rawTrips.push(pair)
-      accumulated += pair.km
-    }
+  if (firstKm < targetKm - MIN_CORRECTION_KM) {
+    rawTrips.push({
+      fromLabel:   siedziba.label,
+      fromAddress: siedziba.address,
+      toLabel:     firstTo.label,
+      toAddress:   firstTo.address,
+      km:          firstKm,
+    })
+    accumulated = firstKm
+  }
+  // (if firstKm alone already fills the gap, skip to correction trip below)
+
+  // ── Phase 2: Middle trips — random pairs that fit within remaining budget ────
+  let iters = 0
+  while (iters < 2000) {
+    const remaining = targetKm - MIN_CORRECTION_KM - accumulated
+    if (remaining <= 0) break
+
+    // Only consider pairs that fit within the remaining budget
+    const available = allPairs.filter(p => p.km <= remaining)
+    if (available.length === 0) break
+
+    const pair = available[Math.floor(rand() * available.length)]
+    rawTrips.push({
+      fromLabel:   pair.from.label,
+      fromAddress: pair.from.address,
+      toLabel:     pair.to.label,
+      toAddress:   pair.to.address,
+      km:          pair.km,
+    })
+    accumulated += pair.km
+    iters++
   }
 
-  // Distribute dates evenly across the range
+  // ── Phase 3: Correction / return trip — Nowa Sol → siedziba ─────────────────
+  // Always added as the last trip to ensure simulation ends at siedziba
+  const correctionKm = targetKm - accumulated
+  if (correctionKm > 0) {
+    rawTrips.push({
+      fromLabel:   CORRECTION_FROM_LABEL,
+      fromAddress: CORRECTION_FROM_ADDRESS,
+      toLabel:     siedziba.label,
+      toAddress:   siedziba.address,
+      km:          correctionKm,
+      purpose:     CORRECTION_PURPOSE,
+    })
+  }
+
+  if (rawTrips.length === 0) return []
+
+  // ── Distribute dates evenly across the range ─────────────────────────────────
   const totalTrips = rawTrips.length
   const interval = totalDays / totalTrips
   const dates: string[] = []
@@ -85,26 +151,22 @@ export function generateTrips(
   }
   dates.sort()
 
-  // Build final trips with odometers
+  // ── Build final SimulatedTripDraft[] ────────────────────────────────────────
   let odo = startOdometer
-  const trips: SimulatedTripDraft[] = rawTrips.map((pair, i) => {
-    const from    = locations[pair.fromIdx]
-    const to      = locations[pair.toIdx]
-    const purpose = PURPOSES[Math.floor(rand() * PURPOSES.length)]
-    const trip: SimulatedTripDraft = {
+  return rawTrips.map((trip, i): SimulatedTripDraft => {
+    const purpose = trip.purpose ?? PURPOSES[Math.floor(rand() * PURPOSES.length)]
+    const draft: SimulatedTripDraft = {
       vehicle_id:      vehicleId,
       trip_date:       dates[i],
       purpose,
-      route_from:      from.label,
-      route_to:        to.label,
+      route_from:      trip.fromLabel,
+      route_to:        trip.toLabel,
       odometer_before: odo,
-      odometer_after:  odo + pair.km,
-      _from_address:   from.address,
-      _to_address:     to.address,
+      odometer_after:  odo + trip.km,
+      _from_address:   trip.fromAddress,
+      _to_address:     trip.toAddress,
     }
-    odo += pair.km
-    return trip
+    odo += trip.km
+    return draft
   })
-
-  return trips
 }
