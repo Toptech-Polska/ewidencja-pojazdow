@@ -12,12 +12,10 @@ type TripWithId = SimulatedTrip & { _id: number }
 type Step = 'form' | 'preview' | 'success'
 
 function recalculateFrom(trips: TripWithId[], from: number, startOdo: number): TripWithId[] {
-  const r = [...trips]
-  let odo = startOdo
+  const r = [...trips]; let odo = startOdo
   for (let i = from; i < r.length; i++) {
     const km = r[i].odometer_after - r[i].odometer_before
-    r[i] = { ...r[i], odometer_before: odo, odometer_after: odo + km }
-    odo += km
+    r[i] = { ...r[i], odometer_before: odo, odometer_after: odo + km }; odo += km
   }
   return r
 }
@@ -35,15 +33,8 @@ function updateKm(trips: TripWithId[], idx: number, km: number): TripWithId[] {
   return idx + 1 < r.length ? recalculateFrom(r, idx + 1, r[idx].odometer_after) : r
 }
 
-function EditModal({ trip, index, onSave, onClose }: {
-  trip: TripWithId; index: number
-  onSave: (i: number, u: any) => void; onClose: () => void
-}) {
-  const [f, setF] = useState({
-    trip_date: trip.trip_date, purpose: trip.purpose,
-    route_from: trip.route_from, route_to: trip.route_to,
-    km: String(trip.odometer_after - trip.odometer_before),
-  })
+function EditModal({ trip, index, onSave, onClose }: { trip: TripWithId; index: number; onSave: (i: number, u: any) => void; onClose: () => void }) {
+  const [f, setF] = useState({ trip_date: trip.trip_date, purpose: trip.purpose, route_from: trip.route_from, route_to: trip.route_to, km: String(trip.odometer_after - trip.odometer_before) })
   const newOdo = trip.odometer_before + (parseInt(f.km, 10) || 0)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -53,22 +44,18 @@ function EditModal({ trip, index, onSave, onClose }: {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&times;</button>
         </div>
         <div className="p-4 space-y-3">
-          <div><label className="form-label">Data wyjazdu</label>
-            <input type="date" className="form-input" value={f.trip_date} onChange={e => setF(p => ({ ...p, trip_date: e.target.value }))} /></div>
-          <div><label className="form-label">Cel wyjazdu</label>
-            <input type="text" className="form-input" value={f.purpose} onChange={e => setF(p => ({ ...p, purpose: e.target.value }))} /></div>
+          <div><label className="form-label">Data wyjazdu</label><input type="date" className="form-input" value={f.trip_date} onChange={e => setF(p => ({ ...p, trip_date: e.target.value }))} /></div>
+          <div><label className="form-label">Cel wyjazdu</label><input type="text" className="form-input" value={f.purpose} onChange={e => setF(p => ({ ...p, purpose: e.target.value }))} /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="form-label">Skad</label>
-              <input type="text" className="form-input" value={f.route_from} onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} /></div>
-            <div><label className="form-label">Dokad</label>
-              <input type="text" className="form-input" value={f.route_to} onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} /></div>
+            <div><label className="form-label">Skad</label><input type="text" className="form-input" value={f.route_from} onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} /></div>
+            <div><label className="form-label">Dokad</label><input type="text" className="form-input" value={f.route_to} onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} /></div>
           </div>
-          <div><label className="form-label">Dystans (km)</label>
+          <div>
+            <label className="form-label">Dystans (km)</label>
             <input type="number" min={1} className="form-input" value={f.km} onChange={e => setF(p => ({ ...p, km: e.target.value }))} />
-            <p className="form-hint">Zmiana dystansu przeliczy liczniki wszystkich kolejnych wpisow.</p></div>
-          <div className="text-xs text-slate-400 bg-slate-50 rounded px-3 py-2">
-            Licznik: {trip.odometer_before.toLocaleString('pl-PL')} &rarr; {newOdo.toLocaleString('pl-PL')} km
+            <p className="form-hint">Zmiana dystansu przeliczy liczniki wszystkich kolejnych wpisow.</p>
           </div>
+          <div className="text-xs text-slate-400 bg-slate-50 rounded px-3 py-2">Licznik: {trip.odometer_before.toLocaleString('pl-PL')} &rarr; {newOdo.toLocaleString('pl-PL')} km</div>
         </div>
         <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
           <button onClick={onClose} className="btn-outline">Anuluj</button>
@@ -79,29 +66,21 @@ function EditModal({ trip, index, onSave, onClose }: {
   )
 }
 
-function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, error }: {
-  trips: TripWithId[]; vehicleLabel: string
-  onChange: (t: TripWithId[]) => void; onSave: () => void; onBack: () => void
-  saving: boolean; error: DbError | null
-}) {
+function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, error }: { trips: TripWithId[]; vehicleLabel: string; onChange: (t: TripWithId[]) => void; onSave: () => void; onBack: () => void; saving: boolean; error: DbError | null }) {
   const [editIdx, setEditIdx] = useState<number | null>(null)
   const totalKm = trips.reduce((s, t) => s + t.odometer_after - t.odometer_before, 0)
-
   function handleEdit(i: number, u: any) {
     let r = [...trips]
     r[i] = { ...r[i], trip_date: u.trip_date, purpose: u.purpose, route_from: u.route_from, route_to: u.route_to }
     onChange(updateKm(r, i, u.km))
   }
-
   return (
     <div className="p-5 space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800">
         &#x2139; Ponizsze wpisy trafia do ewidencji. Kazdy wpis bedzie mozna edytowac rowniez po zapisaniu.
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">
-          <strong>{trips.length}</strong> wpisow dla <strong>{vehicleLabel}</strong> &middot; lacznie <strong>{totalKm.toLocaleString('pl-PL')} km</strong>
-        </p>
+        <p className="text-sm text-slate-600"><strong>{trips.length}</strong> wpisow dla <strong>{vehicleLabel}</strong> &middot; lacznie <strong>{totalKm.toLocaleString('pl-PL')} km</strong></p>
         {trips.length === 0 && <p className="text-sm text-amber-600 font-medium">&#x26A0; Wszystkie wpisy zostaly usuniete.</p>}
       </div>
       {trips.length > 0 && (
@@ -122,7 +101,7 @@ function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, er
                   <td className="px-3 py-2 font-bold text-slate-400 tabular-nums">{i + 1}</td>
                   <td className="px-3 py-2 whitespace-nowrap tabular-nums">{new Date(t.trip_date).toLocaleDateString('pl-PL')}</td>
                   <td className="px-3 py-2 max-w-[180px] truncate" title={t.purpose}>{t.purpose}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{t.route_from.split(',')[0]} &rarr; {t.route_to.split(',')[0]}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{t.route_from} &rarr; {t.route_to}</td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums">{t.odometer_after - t.odometer_before} km</td>
                   <td className="px-3 py-2 text-right text-slate-400 tabular-nums">{t.odometer_after.toLocaleString('pl-PL')}</td>
                   <td className="px-3 py-2">
@@ -141,7 +120,7 @@ function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, er
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={onBack} className="btn-outline">&larr; Wróc do formularza</button>
         <button onClick={onSave} disabled={saving || trips.length === 0} className="btn-primary">
-          {saving ? 'Zapisywanie…' : `Zapisz ${trips.length} wpisow do ewidencji`}
+          {saving ? 'Zapisywanie...' : `Zapisz ${trips.length} wpisow do ewidencji`}
         </button>
       </div>
       {editIdx !== null && <EditModal trip={trips[editIdx]} index={editIdx} onSave={handleEdit} onClose={() => setEditIdx(null)} />}
@@ -151,27 +130,26 @@ function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, er
 
 export function SimulacjaForm({ vehicles }: Props) {
   const router = useRouter()
-  const today = new Date().toISOString().slice(0, 10)
+  const today    = new Date().toISOString().slice(0, 10)
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
-  const [step, setStep] = useState<Step>('form')
-  const [trips, setTrips] = useState<TripWithId[]>([])
-  const [result, setResult] = useState<{ count: number; firstEntryNumber: number | null } | null>(null)
-  const [error, setError] = useState<DbError | null>(null)
+  const [step,    setStep]    = useState<Step>('form')
+  const [trips,   setTrips]   = useState<TripWithId[]>([])
+  const [result,  setResult]  = useState<{ count: number; firstEntryNumber: number | null } | null>(null)
+  const [error,   setError]   = useState<DbError | null>(null)
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [f, setF] = useState({ vehicle_id: vehicles[0]?.id ?? '', startDate: monthAgo, endDate: today, tripsPerWeek: 5, avgKmPerTrip: 80 })
+  const [saving,  setSaving]  = useState(false)
+  const [f, setF] = useState({ vehicle_id: vehicles[0]?.id ?? '', startDate: monthAgo, endDate: today, tripsPerWeek: 5 })
   const [errs, setErrs] = useState<Record<string, string>>({})
   const vLabel = vehicles.find(v => v.id === f.vehicle_id)
   const vehicleLabel = vLabel ? `${vLabel.plate_number} - ${vLabel.make} ${vLabel.model}` : ''
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!f.vehicle_id) e.vehicle_id = 'Wybierz pojazd'
-    if (!f.startDate) e.startDate = 'Podaj date poczatkowa'
-    if (!f.endDate) e.endDate = 'Podaj date koncowa'
-    if (f.endDate <= f.startDate) e.endDate = 'Data koncowa musi byc pozniejsza'
+    if (!f.vehicle_id)                e.vehicle_id  = 'Wybierz pojazd'
+    if (!f.startDate)                 e.startDate   = 'Podaj date poczatkowa'
+    if (!f.endDate)                   e.endDate     = 'Podaj date koncowa'
+    if (f.endDate <= f.startDate)     e.endDate     = 'Data koncowa musi byc pozniejsza'
     if (f.tripsPerWeek < 1 || f.tripsPerWeek > 14) e.tripsPerWeek = 'Zakres 1-14'
-    if (f.avgKmPerTrip < 5 || f.avgKmPerTrip > 500) e.avgKmPerTrip = 'Zakres 5-500 km'
     setErrs(e); return Object.keys(e).length === 0
   }
 
@@ -239,27 +217,22 @@ export function SimulacjaForm({ vehicles }: Props) {
           {errs.endDate && <p className="form-error">{errs.endDate}</p>}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="form-label">Wpisow na tydzien <span className="ml-1 font-bold text-blue-700">{f.tripsPerWeek}</span></label>
-          <input type="range" min={1} max={14} step={1} className="w-full accent-blue-700" value={f.tripsPerWeek} onChange={e => setF(p => ({ ...p, tripsPerWeek: Number(e.target.value) }))} />
-          {errs.tripsPerWeek && <p className="form-error">{errs.tripsPerWeek}</p>}
-          <p className="form-hint">1 = rzadkie wyjazdy, 14 = 2x dziennie</p>
-        </div>
-        <div>
-          <label className="form-label">Sredni dystans <span className="ml-1 font-bold text-blue-700">{f.avgKmPerTrip} km</span></label>
-          <input type="range" min={5} max={500} step={5} className="w-full accent-blue-700" value={f.avgKmPerTrip} onChange={e => setF(p => ({ ...p, avgKmPerTrip: Number(e.target.value) }))} />
-          {errs.avgKmPerTrip && <p className="form-error">{errs.avgKmPerTrip}</p>}
-          <p className="form-hint">&plusmn;40% wariancja na wpis</p>
-        </div>
+      <div>
+        <label className="form-label">Wpisow na tydzien <span className="ml-1 font-bold text-blue-700">{f.tripsPerWeek}</span></label>
+        <input type="range" min={1} max={14} step={1} className="w-full accent-blue-700" value={f.tripsPerWeek} onChange={e => setF(p => ({ ...p, tripsPerWeek: Number(e.target.value) }))} />
+        {errs.tripsPerWeek && <p className="form-error">{errs.tripsPerWeek}</p>}
+        <p className="form-hint">1 = rzadkie wyjazdy, 14 = 2x dziennie</p>
       </div>
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800">
-        &#x2139; Wygenerowane wpisy pojawia sie do podgladu &mdash; mozesz je edytowac lub usunac przed zapisaniem.
+        &#x2139; Trasy i odleglosci sa obliczane na podstawie lokalizacji z Twojego profilu przez Google Maps.
+        Wygenerowane wpisy pojawia sie do podgladu &mdash; mozesz je edytowac lub usunac przed zapisaniem.
       </div>
       <ApiErrorMessage error={error} />
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
-        <button onClick={handlePreview} disabled={loading || !f.vehicle_id} className="btn-primary">{loading ? 'Generowanie…' : 'Generuj podglad'}</button>
+        <button onClick={handlePreview} disabled={loading || !f.vehicle_id} className="btn-primary">
+          {loading ? 'Generowanie...' : 'Generuj podglad'}
+        </button>
       </div>
     </div>
   )
