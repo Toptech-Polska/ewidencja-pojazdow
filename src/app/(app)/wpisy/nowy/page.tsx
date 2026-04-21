@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Topbar } from '@/components/layout/Topbar'
 import { getLastOdometer } from '@/lib/trips/odometer'
+import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
+import type { DbError } from '@/lib/errors/db-errors'
 import type { Vehicle, Profile } from '@/types/database'
 
 async function loadVehiclesAndProfiles() {
@@ -22,7 +24,7 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState<string | null>(null)
+  const [error,  setError]  = useState<DbError | null>(null)
   const [errs,   setErrs]   = useState<Record<string, string>>({})
   const [f, setF] = useState({
     vehicle_id: vehicles[0]?.id ?? '', trip_date: new Date().toISOString().slice(0, 10),
@@ -48,16 +50,16 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)        e.vehicle_id = 'Wybierz pojazd'
-    if (f.purpose.length < 5) e.purpose    = 'Podaj cel wyjazdu (min. 5 znaków)'
+    if (f.purpose.length < 5) e.purpose    = 'Podaj cel wyjazdu (min. 5 znakow)'
     if (!f.route_from)        e.route_from = 'Pole wymagane'
     if (!f.route_to)          e.route_to   = 'Pole wymagane'
     if (!f.odometer_before)   e.odometer_before = 'Podaj stan licznika'
     if (!f.odometer_after)    e.odometer_after  = 'Podaj stan licznika'
-    if (oaNum <= obNum)       e.odometer_after  = `Musi być > ${obNum.toLocaleString('pl-PL')} km`
+    if (oaNum <= obNum)       e.odometer_after  = `Musi byc > ${obNum.toLocaleString('pl-PL')} km`
     if (f.driver_type === 'external' && !f.driver_name_external)
-      e.driver_name_external = 'Podaj imię i nazwisko'
+      e.driver_name_external = 'Podaj imie i nazwisko'
     if (f.driver_type === 'internal' && !f.driver_id)
-      e.driver_id = 'Wybierz kierowcę'
+      e.driver_id = 'Wybierz kierowce'
     setErrs(e); return Object.keys(e).length === 0
   }
 
@@ -75,18 +77,23 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
         }),
       })
-      if (!res.ok) { const d = await res.json(); setError(d.error ?? 'Błąd zapisu'); setSaving(false); return }
+      const d = await res.json()
+      if (!res.ok) {
+        setError(d.code ? d : { code: 'db_error', message: d.error ?? 'Blad zapisu', hint: '' })
+        setSaving(false); return
+      }
       setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
     } catch {
-      setError('Błąd połączenia z serwerem'); setSaving(false)
+      setError({ code: 'db_error', message: 'Blad polaczenia z serwerem', hint: '' })
+      setSaving(false)
     }
   }
 
   if (saved) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
-      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">✓</div>
-      <h2 className="text-lg font-semibold text-slate-800">Wpis zapisany pomyślnie</h2>
-      <p className="text-sm text-slate-400">Przekierowuję…</p>
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">&#x2713;</div>
+      <h2 className="text-lg font-semibold text-slate-800">Wpis zapisany pomyslnie</h2>
+      <p className="text-sm text-slate-400">Przekierowuje&hellip;</p>
     </div>
   )
 
@@ -97,8 +104,8 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           <label className="form-label">Pojazd <span className="text-red-500">*</span></label>
           <select className={`form-input ${errs.vehicle_id ? 'form-input-error' : ''}`} value={f.vehicle_id}
             onChange={e => setF(p => ({ ...p, vehicle_id: e.target.value, odometer_before: '', odometer_after: '' }))}>
-            <option value="">— wybierz —</option>
-            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} — {v.make} {v.model}</option>)}
+            <option value="">- wybierz -</option>
+            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} - {v.make} {v.model}</option>)}
           </select>
           {errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>}
         </div>
@@ -114,19 +121,19 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           onChange={e => setF(p => ({ ...p, purpose: e.target.value }))}
           placeholder="np. Spotkanie z klientem ABC Sp. z o.o." />
         {errs.purpose ? <p className="form-error">{errs.purpose}</p>
-          : <p className="form-hint">Cel musi potwierdzać służbowy charakter wyjazdu (art. 86a ustawy o VAT)</p>}
+          : <p className="form-hint">Cel musi potwierdzac sluzbowy charakter wyjazdu (art. 86a ustawy o VAT)</p>}
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="route_from" className="form-label">Skąd <span className="text-red-500">*</span></label>
+          <label htmlFor="route_from" className="form-label">Skad <span className="text-red-500">*</span></label>
           <input id="route_from" type="text" className={`form-input ${errs.route_from ? 'form-input-error' : ''}`} value={f.route_from}
-            onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} placeholder="np. Bydgoszcz, ul. Długa 10" />
+            onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} placeholder="np. Bydgoszcz, ul. Dluga 10" />
           {errs.route_from && <p className="form-error">{errs.route_from}</p>}
         </div>
         <div>
-          <label htmlFor="route_to" className="form-label">Dokąd <span className="text-red-500">*</span></label>
+          <label htmlFor="route_to" className="form-label">Dokad <span className="text-red-500">*</span></label>
           <input id="route_to" type="text" className={`form-input ${errs.route_to ? 'form-input-error' : ''}`} value={f.route_to}
-            onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} placeholder="np. Warszawa, Al. Jana Pawła II 22" />
+            onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} placeholder="np. Warszawa, Al. Jana Pawla II 22" />
           {errs.route_to && <p className="form-error">{errs.route_to}</p>}
         </div>
       </div>
@@ -146,7 +153,7 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         <div>
           <label className="form-label">Km (obliczone)</label>
           <div className={`form-input text-center font-bold ${km === null ? 'bg-slate-50 text-slate-400' : km > 0 ? 'bg-green-50 text-green-700 border-green-300' : 'bg-red-50 text-red-600 border-red-300'}`}>
-            {km === null ? '—' : km > 0 ? `${km.toLocaleString('pl-PL')} km` : '⚠ Błąd licznika!'}
+            {km === null ? '-' : km > 0 ? `${km.toLocaleString('pl-PL')} km` : 'Blad licznika!'}
           </div>
         </div>
       </div>
@@ -157,7 +164,7 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
             {(['internal', 'external'] as const).map(type => (
               <button key={type} type="button" onClick={() => setF(p => ({ ...p, driver_type: type }))}
                 className={`flex-1 py-2 text-sm font-medium transition-colors ${f.driver_type === type ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'} ${type === 'external' ? 'border-l border-slate-200' : ''}`}>
-                {type === 'internal' ? 'Pracownik' : 'Zewnętrzny'}
+                {type === 'internal' ? 'Pracownik' : 'Zewnetrzny'}
               </button>
             ))}
           </div>
@@ -166,30 +173,30 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           <div>
             <label className="form-label">Kierowca <span className="text-red-500">*</span></label>
             <select className="form-input" value={f.driver_id} onChange={e => setF(p => ({ ...p, driver_id: e.target.value }))}>
-              <option value="">— wybierz —</option>
+              <option value="">- wybierz -</option>
               {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
             </select>
             {errs.driver_id && <p className="form-error">{errs.driver_id}</p>}
           </div>
         ) : (
           <div>
-            <label htmlFor="driver_name_external" className="form-label">Imię i nazwisko (zewnętrzny) <span className="text-red-500">*</span></label>
+            <label htmlFor="driver_name_external" className="form-label">Imie i nazwisko (zewnetrzny) <span className="text-red-500">*</span></label>
             <input id="driver_name_external" type="text" className={`form-input ${errs.driver_name_external ? 'form-input-error' : ''}`}
               value={f.driver_name_external} onChange={e => setF(p => ({ ...p, driver_name_external: e.target.value }))}
-              placeholder="Pełne imię i nazwisko" />
+              placeholder="Pelne imie i nazwisko" />
             {errs.driver_name_external && <p className="form-error">{errs.driver_name_external}</p>}
           </div>
         )}
       </div>
       {f.driver_type === 'external' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800">
-          ⚠ Wpis kierowcy zewnętrznego wymaga potwierdzenia przez spółkę (art. 86a ust. 7 pkt 2 lit. b ustawy o VAT).
+          &#x26A0; Wpis kierowcy zewnetrznego wymaga potwierdzenia przez spolke (art. 86a ust. 7 pkt 2 lit. b ustawy o VAT).
         </div>
       )}
-      {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-sm text-red-700">{error}</div>}
+      <ApiErrorMessage error={error} />
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
-        <button onClick={handleSubmit} disabled={saving} className="btn-primary">{saving ? 'Zapisywanie…' : 'Zapisz wpis'}</button>
+        <button onClick={handleSubmit} disabled={saving} className="btn-primary">{saving ? 'Zapisywanie\u2026' : 'Zapisz wpis'}</button>
       </div>
     </div>
   )
@@ -199,7 +206,7 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState<string | null>(null)
+  const [error,  setError]  = useState<DbError | null>(null)
   const [errs,   setErrs]   = useState<Record<string, string>>({})
   const [f, setF] = useState({
     vehicle_id: vehicles[0]?.id ?? '', loan_date: new Date().toISOString().slice(0, 10),
@@ -220,10 +227,10 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)  e.vehicle_id  = 'Wybierz pojazd'
-    if (!f.loan_date)   e.loan_date   = 'Podaj datę'
-    if (f.purpose.length < 5) e.purpose = 'Podaj cel (min. 5 znaków)'
+    if (!f.loan_date)   e.loan_date   = 'Podaj date'
+    if (f.purpose.length < 5) e.purpose = 'Podaj cel (min. 5 znakow)'
     if (!f.odometer_at_issue) e.odometer_at_issue = 'Podaj stan licznika'
-    if (f.loaned_to_type === 'external' && !f.loaned_to_name) e.loaned_to_name = 'Podaj imię i nazwisko'
+    if (f.loaned_to_type === 'external' && !f.loaned_to_name) e.loaned_to_name = 'Podaj imie i nazwisko'
     if (f.loaned_to_type === 'internal' && !f.loaned_to_user_id) e.loaned_to_user_id = 'Wybierz pracownika'
     setErrs(e); return Object.keys(e).length === 0
   }
@@ -244,15 +251,19 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         notes: f.notes || undefined,
       }),
     })
-    if (!res.ok) { const d = await res.json(); setError(d.error ?? 'Błąd zapisu'); setSaving(false); return }
+    const d = await res.json()
+    if (!res.ok) {
+      setError(d.code ? d : { code: 'db_error', message: d.error ?? 'Blad zapisu', hint: '' })
+      setSaving(false); return
+    }
     setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
   }
 
   if (saved) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
-      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">✓</div>
-      <h2 className="text-lg font-semibold text-slate-800">Udostępnienie zapisane</h2>
-      <p className="text-sm text-slate-400">Przekierowuję…</p>
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">&#x2713;</div>
+      <h2 className="text-lg font-semibold text-slate-800">Udostepnienie zapisane</h2>
+      <p className="text-sm text-slate-400">Przekierowuje&hellip;</p>
     </div>
   )
 
@@ -263,34 +274,34 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           <label className="form-label">Pojazd <span className="text-red-500">*</span></label>
           <select className={`form-input ${errs.vehicle_id ? 'form-input-error' : ''}`} value={f.vehicle_id}
             onChange={e => setF(p => ({ ...p, vehicle_id: e.target.value }))}>
-            <option value="">— wybierz —</option>
-            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} — {v.make} {v.model}</option>)}
+            <option value="">- wybierz -</option>
+            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} - {v.make} {v.model}</option>)}
           </select>
           {errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>}
         </div>
         <div>
-          <label className="form-label">Data udostępnienia <span className="text-red-500">*</span></label>
+          <label className="form-label">Data udostepnienia <span className="text-red-500">*</span></label>
           <input type="date" className="form-input" value={f.loan_date}
             onChange={e => setF(p => ({ ...p, loan_date: e.target.value }))} />
           {errs.loan_date && <p className="form-error">{errs.loan_date}</p>}
         </div>
       </div>
       <div>
-        <label className="form-label">Cel udostępnienia <span className="text-red-500">*</span></label>
+        <label className="form-label">Cel udostepnienia <span className="text-red-500">*</span></label>
         <input type="text" className={`form-input ${errs.purpose ? 'form-input-error' : ''}`} value={f.purpose}
           onChange={e => setF(p => ({ ...p, purpose: e.target.value }))}
-          placeholder="np. Wyjazd służbowy do klienta XYZ" />
+          placeholder="np. Wyjazd sluzbowy do klienta XYZ" />
         {errs.purpose ? <p className="form-error">{errs.purpose}</p>
-          : <p className="form-hint">Cel musi potwierdzać służbowy charakter użytkowania (art. 86a ustawy o VAT)</p>}
+          : <p className="form-hint">Cel musi potwierdzac sluzbowy charakter uzytkowania (art. 86a ustawy o VAT)</p>}
       </div>
       <div className="space-y-2">
-        <label className="form-label">Udostępniono <span className="text-red-500">*</span></label>
+        <label className="form-label">Udostepniono <span className="text-red-500">*</span></label>
         <div className="flex rounded-lg border border-slate-200 overflow-hidden">
           {(['external', 'internal'] as const).map(type => (
             <button key={type} type="button"
               onClick={() => setF(p => ({ ...p, loaned_to_type: type, loaned_to_name: '', loaned_to_user_id: '' }))}
               className={`flex-1 py-2 text-sm font-medium transition-colors ${f.loaned_to_type === type ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'} ${type === 'internal' ? 'border-l border-slate-200' : ''}`}>
-              {type === 'external' ? 'Osobie zewnętrznej' : 'Pracownikowi'}
+              {type === 'external' ? 'Osobie zewnetrznej' : 'Pracownikowi'}
             </button>
           ))}
         </div>
@@ -298,14 +309,14 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
           <div>
             <input type="text" className={`form-input ${errs.loaned_to_name ? 'form-input-error' : ''}`}
               value={f.loaned_to_name} onChange={e => setF(p => ({ ...p, loaned_to_name: e.target.value }))}
-              placeholder="Imię i nazwisko osoby" />
+              placeholder="Imie i nazwisko osoby" />
             {errs.loaned_to_name && <p className="form-error">{errs.loaned_to_name}</p>}
           </div>
         ) : (
           <div>
             <select className={`form-input ${errs.loaned_to_user_id ? 'form-input-error' : ''}`}
               value={f.loaned_to_user_id} onChange={e => setF(p => ({ ...p, loaned_to_user_id: e.target.value }))}>
-              <option value="">— wybierz pracownika —</option>
+              <option value="">- wybierz pracownika -</option>
               {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
             </select>
             {errs.loaned_to_user_id && <p className="form-error">{errs.loaned_to_user_id}</p>}
@@ -317,21 +328,21 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         <input type="number" className={`form-input ${errs.odometer_at_issue ? 'form-input-error' : ''}`}
           value={f.odometer_at_issue} onChange={e => setF(p => ({ ...p, odometer_at_issue: e.target.value }))} placeholder="km" />
         {errs.odometer_at_issue ? <p className="form-error">{errs.odometer_at_issue}</p>
-          : <p className="form-hint">Stan licznika przy zwrocie uzupełnisz po powrocie pojazdu</p>}
+          : <p className="form-hint">Stan licznika przy zwrocie uzupelnisz po powrocie pojazdu</p>}
       </div>
       <div>
         <label className="form-label">Notatka <span className="text-slate-400 font-normal">(opcjonalnie)</span></label>
         <textarea className="form-input resize-none" rows={2} value={f.notes}
           onChange={e => setF(p => ({ ...p, notes: e.target.value }))}
-          placeholder="Dodatkowe informacje…" maxLength={1000} />
+          placeholder="Dodatkowe informacje&hellip;" maxLength={1000} />
       </div>
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800">
-        ℹ Wpis zostanie zapisany jako <strong>udostępnienie</strong> w ewidencji (art. 86a ust. 7 pkt 2 lit. c ustawy o VAT).
+        &#x2139; Wpis zostanie zapisany jako <strong>udostepnienie</strong> w ewidencji (art. 86a ust. 7 pkt 2 lit. c ustawy o VAT).
       </div>
-      {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-sm text-red-700">{error}</div>}
+      <ApiErrorMessage error={error} />
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
-        <button onClick={handleSubmit} disabled={saving} className="btn-primary">{saving ? 'Zapisywanie…' : 'Zapisz udostępnienie'}</button>
+        <button onClick={handleSubmit} disabled={saving} className="btn-primary">{saving ? 'Zapisywanie\u2026' : 'Zapisz udostepnienie'}</button>
       </div>
     </div>
   )
@@ -358,12 +369,12 @@ export default function NowyWpisPage() {
             {(['wyjazd', 'udostepnienie'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${t === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                {t === 'wyjazd' ? '🚗 Wyjazd własny' : '🤝 Udostępnienie pojazdu'}
+                {t === 'wyjazd' ? 'Wyjazd wlasny' : 'Udostepnienie pojazdu'}
               </button>
             ))}
           </div>
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Ładowanie danych…</div>
+            <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Ladowanie danych&hellip;</div>
           ) : tab === 'wyjazd' ? (
             <TripForm vehicles={vehicles} profiles={profiles} />
           ) : (
