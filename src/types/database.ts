@@ -1,6 +1,6 @@
 // ============================================================
 // Typy TypeScript — wygenerowane ze schematu vat_km Supabase
-// Aby zaktualizować: npm run supabase:types
+// Aby zaktualizowac: npm run supabase:types
 // ============================================================
 
 export type Json =
@@ -18,6 +18,22 @@ export type PeriodType = 'miesieczny' | 'kwartalny' | 'zamkniecie'
 export type EntryType = 'wyjazd' | 'udostepnienie'
 export type AuditAction = 'insert' | 'update' | 'delete' | 'confirm' | 'close_record' | 'vat26_filed'
 export type Vat26Status = 'nie_wymagany' | 'zlozony' | 'brak_daty_wydatku' | 'po_terminie' | 'pilny' | 'oczekujacy'
+
+// ─── SIMULATION CONFIG ────────────────────────────────────────
+// Przechowywane jako JSONB w profiles.simulation_config
+
+export type SimulationLocationType = 'siedziba' | 'dom' | 'klient' | 'inne'
+
+export interface SimulationLocation {
+  id: string
+  label: string    // display name, np. "Siedziba firmy", "Klient ABC"
+  address: string  // pelny adres dla Google Maps API
+  type: SimulationLocationType
+}
+
+export interface SimulationConfig {
+  locations: SimulationLocation[]
+}
 
 // ─── TABLE TYPES ─────────────────────────────────────────────
 
@@ -37,6 +53,7 @@ export interface Profile {
   email: string
   role: UserRole
   is_active: boolean
+  simulation_config: SimulationConfig | null
   created_at: string
 }
 
