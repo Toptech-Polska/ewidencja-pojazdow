@@ -1,22 +1,10 @@
-import type { SimulationParams, SimulatedTrip } from './types'
+import type { SimulationParams, SimulatedTripDraft } from './types'
 
 const PURPOSES = [
-  'Spotkanie z klientem',
-  'Wizyta serwisowa',
-  'Odbiór dokumentów',
-  'Szkolenie zewnętrzne',
-  'Kontrola budowy',
-  'Spotkanie handlowe',
-  'Dostawa materiałów',
-  'Wizyta u dostawcy',
-  'Konferencja branżowa',
-  'Przekazanie sprzętu',
-]
-
-const CITIES = [
-  'Warszawa', 'Kraków', 'Gdańsk', 'Wrocław', 'Poznań',
-  'Łódź', 'Katowice', 'Bydgoszcz', 'Lublin', 'Szczecin',
-  'Rzeszów', 'Toruń', 'Białystok', 'Gdynia', 'Częstochowa',
+  'Spotkanie z klientem', 'Wizyta serwisowa', 'Odbior dokumentow',
+  'Szkolenie zewnetrzne', 'Kontrola budowy', 'Spotkanie handlowe',
+  'Dostawa materialow', 'Wizyta u dostawcy', 'Konferencja branzowa',
+  'Przekazanie sprzetu',
 ]
 
 function seededRand(seed: number): () => number {
@@ -37,8 +25,10 @@ function daysBetween(from: string, to: string): number {
   return Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000)
 }
 
-export function generateTrips(params: SimulationParams): SimulatedTrip[] {
-  const { vehicleId, startOdometer, startDate, endDate, tripsPerWeek, avgKmPerTrip } = params
+export function generateTrips(params: SimulationParams): SimulatedTripDraft[] {
+  const { vehicleId, startOdometer, startDate, endDate, tripsPerWeek, locations } = params
+  if (locations.length < 2) return []
+
   const totalDays = daysBetween(startDate, endDate)
   if (totalDays <= 0) return []
 
@@ -47,38 +37,39 @@ export function generateTrips(params: SimulationParams): SimulatedTrip[] {
 
   const rand = seededRand(vehicleId.charCodeAt(0) * 31 + startOdometer)
 
-  // Rozkładamy daty równomiernie w przedziale, z losowym szumem ±1 dzień
+  // Distribute dates evenly with slight jitter
   const interval = totalDays / totalTrips
   const dates: string[] = []
   for (let i = 0; i < totalTrips; i++) {
     const base = interval * i + interval * 0.5
-    const jitter = (rand() - 0.5) * 2  // -1..+1 dni
+    const jitter = (rand() - 0.5) * 2
     const day = Math.max(0, Math.min(totalDays - 1, Math.round(base + jitter)))
     dates.push(addDays(startDate, day))
   }
   dates.sort()
 
-  let odometer = startOdometer
-  const trips: SimulatedTrip[] = []
+  const trips: SimulatedTripDraft[] = []
 
   for (let i = 0; i < totalTrips; i++) {
-    const variance = 0.4  // ±40% od średniej
-    const km = Math.max(5, Math.round(avgKmPerTrip * (1 + (rand() - 0.5) * 2 * variance)))
-    const cityFrom = CITIES[Math.floor(rand() * CITIES.length)]
-    let cityTo = CITIES[Math.floor(rand() * CITIES.length)]
-    if (cityTo === cityFrom) cityTo = CITIES[(CITIES.indexOf(cityFrom) + 1) % CITIES.length]
+    const fromIdx = Math.floor(rand() * locations.length)
+    let toIdx = Math.floor(rand() * locations.length)
+    if (toIdx === fromIdx) toIdx = (fromIdx + 1) % locations.length
+
+    const from = locations[fromIdx]
+    const to   = locations[toIdx]
     const purpose = PURPOSES[Math.floor(rand() * PURPOSES.length)]
 
     trips.push({
-      vehicle_id:      vehicleId,
-      trip_date:       dates[i],
+      vehicle_id:       vehicleId,
+      trip_date:        dates[i],
       purpose,
-      route_from:      cityFrom,
-      route_to:        cityTo,
-      odometer_before: odometer,
-      odometer_after:  odometer + km,
+      route_from:       from.label,
+      route_to:         to.label,
+      odometer_before:  startOdometer, // placeholder — recalculated after Maps
+      odometer_after:   startOdometer, // placeholder — filled by Maps distances
+      _from_address:    from.address,
+      _to_address:      to.address,
     })
-    odometer += km
   }
 
   return trips
