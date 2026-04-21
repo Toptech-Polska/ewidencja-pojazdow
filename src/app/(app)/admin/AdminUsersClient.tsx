@@ -6,7 +6,7 @@ import type { Profile, UserRole } from '@/types/database'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   administrator: 'Administrator',
-  ksiegowosc:    'Księgowość',
+  ksiegowosc:    'Ksiegowosc',
   kierowca:      'Kierowca',
   kontrola:      'Kontrola',
 }
@@ -17,18 +17,111 @@ const ROLE_BADGE: Record<UserRole, string> = {
   kontrola:      'badge-info',
 }
 
-interface EditState {
-  id: string
-  full_name: string
-  role: UserRole
-  is_active: boolean
+// ── Add User Modal ────────────────────────────────────────────────────────────
+
+function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [f, setF] = useState({ email: '', full_name: '', role: 'kierowca' as UserRole, password: '' })
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+  const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({})
+
+  function validate() {
+    const e: Record<string, string> = {}
+    if (!f.email.includes('@'))         e.email     = 'Podaj prawidlowy email'
+    if (f.full_name.trim().length < 2)  e.full_name = 'Imie i nazwisko (min. 2 znaki)'
+    if (f.password.length < 8)          e.password  = 'Haslo musi miec co najmniej 8 znakow'
+    setFieldErrs(e)
+    return Object.keys(e).length === 0
+  }
+
+  async function handleCreate() {
+    if (!validate()) return
+    setSaving(true); setError(null)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(f),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Blad tworzenia uzytkownika'); setSaving(false); return }
+      onCreated()
+    } catch {
+      setError('Blad polaczenia z serwerem')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-800">Dodaj nowego uzytkownika</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="form-label">Email <span className="text-red-500">*</span></label>
+            <input type="email" className={`form-input ${fieldErrs.email ? 'form-input-error' : ''}`}
+              value={f.email} onChange={e => setF(p => ({ ...p, email: e.target.value }))}
+              placeholder="imie@firma.pl" />
+            {fieldErrs.email && <p className="form-error">{fieldErrs.email}</p>}
+          </div>
+          <div>
+            <label className="form-label">Imie i nazwisko <span className="text-red-500">*</span></label>
+            <input type="text" className={`form-input ${fieldErrs.full_name ? 'form-input-error' : ''}`}
+              value={f.full_name} onChange={e => setF(p => ({ ...p, full_name: e.target.value }))}
+              placeholder="Jan Kowalski" />
+            {fieldErrs.full_name && <p className="form-error">{fieldErrs.full_name}</p>}
+          </div>
+          <div>
+            <label className="form-label">Rola <span className="text-red-500">*</span></label>
+            <select className="form-input" value={f.role}
+              onChange={e => setF(p => ({ ...p, role: e.target.value as UserRole }))}>
+              {(Object.keys(ROLE_LABELS) as UserRole[]).map(r => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Haslo tymczasowe <span className="text-red-500">*</span></label>
+            <input type="password" className={`form-input ${fieldErrs.password ? 'form-input-error' : ''}`}
+              value={f.password} onChange={e => setF(p => ({ ...p, password: e.target.value }))}
+              placeholder="Min. 8 znakow" />
+            {fieldErrs.password
+              ? <p className="form-error">{fieldErrs.password}</p>
+              : <p className="form-hint">Uzytkownik bedzie mogl zmienic haslo po pierwszym logowaniu.</p>
+            }
+          </div>
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
+          )}
+        </div>
+        <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-outline">Anuluj</button>
+          <button onClick={handleCreate} disabled={saving} className="btn-primary">
+            {saving ? 'Tworzenie...' : 'Utworz konto'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
+
+// ── Inline quick-edit (role + active) ────────────────────────────────────────
+
+interface EditState {
+  id: string; full_name: string; role: UserRole; is_active: boolean
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
   const router = useRouter()
-  const [editing, setEditing] = useState<EditState | null>(null)
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
+  const [editing,    setEditing]    = useState<EditState | null>(null)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
 
   function startEdit(p: Profile) {
     setEditing({ id: p.id, full_name: p.full_name, role: p.role, is_active: p.is_active })
@@ -42,31 +135,40 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
       const res = await fetch(`/api/profiles/${editing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: editing.full_name,
-          role:      editing.role,
-          is_active: editing.is_active,
-        }),
+        body: JSON.stringify({ full_name: editing.full_name, role: editing.role, is_active: editing.is_active }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Błąd zapisu'); setSaving(false); return }
+      if (!res.ok) { setError(data.error ?? 'Blad zapisu'); setSaving(false); return }
       setEditing(null)
       router.refresh()
     } catch {
-      setError('Błąd połączenia z serwerem')
+      setError('Blad polaczenia z serwerem')
     }
     setSaving(false)
   }
 
+  function handleCreated() {
+    setShowAddModal(false)
+    router.refresh()
+  }
+
   return (
     <>
+      {/* Add user button */}
+      <div className="flex justify-end px-0 pb-3">
+        <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+          + Dodaj uzytkownika
+        </button>
+      </div>
+
       {error && (
-        <div className="mx-0 mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
       )}
+
       <table className="data-table">
         <thead>
           <tr>
-            <th>Użytkownik</th><th>Email</th><th>Rola</th><th>Status</th><th></th>
+            <th>Uzytkownik</th><th>Email</th><th>Rola</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -82,11 +184,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                       {initials}
                     </div>
                     {isEditing ? (
-                      <input
-                        className="form-input py-1 text-sm"
-                        value={editing.full_name}
-                        onChange={e => setEditing(prev => prev ? { ...prev, full_name: e.target.value } : prev)}
-                      />
+                      <input className="form-input py-1 text-sm" value={editing.full_name}
+                        onChange={e => setEditing(prev => prev ? { ...prev, full_name: e.target.value } : prev)} />
                     ) : (
                       <span className="font-semibold text-slate-800">{p.full_name}</span>
                     )}
@@ -95,11 +194,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td className="text-slate-500 text-xs">{p.email}</td>
                 <td>
                   {isEditing ? (
-                    <select
-                      className="form-input py-1 text-sm"
-                      value={editing.role}
-                      onChange={e => setEditing(prev => prev ? { ...prev, role: e.target.value as UserRole } : prev)}
-                    >
+                    <select className="form-input py-1 text-sm" value={editing.role}
+                      onChange={e => setEditing(prev => prev ? { ...prev, role: e.target.value as UserRole } : prev)}>
                       {(Object.keys(ROLE_LABELS) as UserRole[]).map(r => (
                         <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                       ))}
@@ -111,11 +207,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td>
                   {isEditing ? (
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editing.is_active}
-                        onChange={e => setEditing(prev => prev ? { ...prev, is_active: e.target.checked } : prev)}
-                      />
+                      <input type="checkbox" checked={editing.is_active}
+                        onChange={e => setEditing(prev => prev ? { ...prev, is_active: e.target.checked } : prev)} />
                       <span className="text-xs">{editing.is_active ? 'Aktywny' : 'Nieaktywny'}</span>
                     </label>
                   ) : (
@@ -127,37 +220,40 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td>
                   {isEditing ? (
                     <div className="flex gap-2">
-                      <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="text-xs text-white bg-blue-700 hover:bg-blue-800 font-medium px-2 py-1 rounded"
-                      >
-                        {saving ? '…' : 'Zapisz'}
+                      <button onClick={handleSave} disabled={saving}
+                        className="text-xs text-white bg-blue-700 hover:bg-blue-800 font-medium px-2 py-1 rounded">
+                        {saving ? '...' : 'Zapisz'}
                       </button>
-                      <button
-                        onClick={() => { setEditing(null); setError(null) }}
-                        className="text-xs text-slate-500 hover:text-slate-700 font-medium"
-                      >
+                      <button onClick={() => { setEditing(null); setError(null) }}
+                        className="text-xs text-slate-500 hover:text-slate-700 font-medium">
                         Anuluj
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => startEdit(p)}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      Edytuj
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => startEdit(p)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap">
+                        Edytuj
+                      </button>
+                      <a href={`/admin/users/${p.id}`}
+                        className="text-xs text-slate-500 hover:text-slate-800 font-medium whitespace-nowrap">
+                        Pelny profil &rarr;
+                      </a>
+                    </div>
                   )}
                 </td>
               </tr>
             )
           })}
           {!profiles.length && (
-            <tr><td colSpan={5} className="text-center text-slate-400 py-6 text-sm">Brak użytkowników</td></tr>
+            <tr><td colSpan={5} className="text-center text-slate-400 py-6 text-sm">Brak uzytkownikow</td></tr>
           )}
         </tbody>
       </table>
+
+      {showAddModal && (
+        <AddUserModal onClose={() => setShowAddModal(false)} onCreated={handleCreated} />
+      )}
     </>
   )
 }
