@@ -25,10 +25,11 @@ export type Vat26Status = 'nie_wymagany' | 'zlozony' | 'brak_daty_wydatku' | 'po
 export type SimulationLocationType = 'siedziba' | 'dom' | 'klient' | 'inne'
 
 export interface SimulationLocation {
-  id: string
-  label: string    // display name, np. "Siedziba firmy", "Klient ABC"
-  address: string  // pelny adres dla Google Maps API
-  type: SimulationLocationType
+  id:       string
+  label:    string                  // display name, np. "Siedziba firmy", "Klient ABC"
+  address:  string                  // pelny adres dla Google Maps API
+  type:     SimulationLocationType
+  purposes: string[]                // cele wizyt dla tej lokalizacji, np. ["Powrot do siedziby", "Wyjazd sluzbowy"]
 }
 
 export interface SimulationConfig {
