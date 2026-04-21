@@ -1,4 +1,4 @@
-export type DbErrorCode = 'sequence_missing' | 'odometer_continuity' | 'db_error'
+export type DbErrorCode = 'sequence_missing' | 'odometer_continuity' | 'no_simulation_config' | 'db_error'
 
 export interface DbError {
   code: DbErrorCode
