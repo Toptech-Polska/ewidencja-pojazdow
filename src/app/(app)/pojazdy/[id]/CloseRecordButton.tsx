@@ -83,12 +83,12 @@ export function CloseRecordButton({ vehicleId, plateNumber, odometerStart }: Pro
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="form-label">Data zamknięcia <span className="text-red-500">*</span></label>
-                  <input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} />
+                  <label htmlFor="close_date" className="form-label">Data zamknięcia <span className="text-red-500">*</span></label>
+                  <input id="close_date" type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} />
                 </div>
                 <div>
-                  <label className="form-label">Licznik końcowy <span className="text-red-500">*</span></label>
-                  <input type="number" className="form-input" min={odometerStart}
+                  <label htmlFor="close_odometer" className="form-label">Licznik końcowy <span className="text-red-500">*</span></label>
+                  <input id="close_odometer" type="number" className="form-input" min={odometerStart}
                     value={odo} onChange={e => setOdo(e.target.value)} placeholder="km" />
                 </div>
               </div>
