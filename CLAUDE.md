@@ -1,117 +1,181 @@
-# CLAUDE.md — ewidencja-pojazdow
+# CLAUDE.md — Ewidencja Pojazdów: Migracja auth na Google OAuth + auth_hub whitelist
 
-Przeczytaj ten plik w całości przed wykonaniem jakiegokolwiek zadania.
+## Cel zadania
+
+Zastąp istniejące logowanie e-mail/hasło **wyłącznie logowaniem przez Google OAuth**.
+Dostęp tylko dla adresów email zatwierdzonych w tabeli `auth_hub.allowed_emails` w Supabase.
+
+Nie zmieniaj żadnej logiki biznesowej, stylów, komponentów ani innych stron aplikacji.
 
 ---
 
-## Stack
+## Stack i kluczowa różnica
 
-- Next.js 14 App Router, TypeScript, Tailwind CSS
-- Supabase (schema: `vat_km`) — zawsze używaj `.schema('vat_km')` przy każdym zapytaniu
-- Zod do walidacji, date-fns do dat (już w package.json)
-- Brak frameworka testowego — do Sprint 1 dodaj vitest: `npm install -D vitest`
+Ta aplikacja to **Next.js App Router** z serwerowym middleware — NIE Vite SPA.
+Auth callback to prawdziwy endpoint serwerowy (`route.ts`), nie strona React.
+Sprawdzenie whitelist dzieje się po stronie **serwera**, nie klienta.
 
-## Struktura katalogów
+---
 
-```
-src/
-  app/
-    (app)/          ← chronione trasy (wymagają auth)
-    (auth)/         ← login
-    api/            ← API routes (Server tylko)
-  components/
-    layout/         ← Sidebar.tsx, Topbar.tsx
-  hooks/            ← useProfile.ts (role kierowcy)
-  lib/
-    supabase/       ← client.ts, server.ts, middleware.ts
-    validations/    ← schematy Zod
-  types/
-    database.ts     ← JEDYNE źródło typów — nie duplikuj typów w innych plikach
-```
+## Supabase — projekt i tabele
 
-## Wzorce — stosuj konsekwentnie
+- **Projekt:** `cukohoqgvcsvmopvivjt` — już skonfigurowany w `.env.local`, Google OAuth włączony
+- **Tabela whitelist:** `auth_hub.allowed_emails` (kolumny: `email TEXT`, `is_active BOOLEAN`)
+- **Tabela ról:** `auth_hub.user_app_roles` (kolumny: `user_id UUID`, `app TEXT`, `role TEXT`)
+- **App identifier dla tej aplikacji:** `'vat_km'`
+- **Dane aplikacji:** schemat `vat_km` — już w tym samym projekcie Supabase
 
-### Supabase Server (API routes, Server Components)
+---
+
+## Co zmienić
+
+### 1. `src/app/(auth)/login/page.tsx` — ZASTĄP całą zawartość
+
+Nowa strona logowania:
+- Usuń formularz email/hasło całkowicie
+- Dodaj jeden przycisk "Zaloguj się przez Google" wywołujący Server Action lub `signInWithOAuth` po stronie klienta
+- Zachowaj istniejący styl (logo KM, `bg-white rounded-2xl`, kolory slate)
+- Jeśli URL zawiera `?error=unauthorized` — wyświetl komunikat: "Twój adres email nie ma dostępu do tej aplikacji. Skontaktuj się z administratorem."
+
+Implementacja przycisku Google (client component):
 ```typescript
-import { createClient } from '@/lib/supabase/server'
-const supabase = await createClient()
-```
-
-### Supabase Client (komponenty 'use client')
-```typescript
+'use client'
 import { createClient } from '@/lib/supabase/client'
-const supabase = createClient()
-```
 
-### Guard autentykacji w API route
-```typescript
-const { data: { user }, error: authError } = await supabase.auth.getUser()
-if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-```
+export function GoogleLoginButton() {
+  const handleLogin = async () => {
+    const supabase = createClient()
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+  }
 
-### Pobieranie profilu i roli w API route
-```typescript
-const { data: profile } = await supabase
-  .schema('vat_km').from('profiles').select('role, company_id').eq('id', user.id).single()
-if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-```
-
-### Klasy CSS formularzy (globals.css)
-Zawsze stosuj istniejące klasy: `form-label`, `form-input`, `form-input-error`, `form-error`, `form-hint`, `btn-primary`, `btn-outline`, `card`
-
-### Struktura Server Component z auth guardem
-```typescript
-// app/(app)/[route]/page.tsx
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-
-export default async function Page() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  // opcjonalny guard roli:
-  const { data: profile } = await supabase.schema('vat_km').from('profiles')
-    .select('role').eq('id', user.id).single()
-  if (!['kierowca', 'administrator'].includes(profile?.role ?? '')) redirect('/dashboard')
-  // ...render
+  return (
+    <button onClick={handleLogin} className="btn-primary w-full ...">
+      <GoogleIcon />
+      Zaloguj się przez Google
+    </button>
+  )
 }
 ```
 
-## Krytyczne ograniczenia bazy danych
+---
 
-### 1. Trigger `validate_odometer_continuity`
-Każdy nowy `trip_entry` musi mieć `odometer_before` dokładnie równy `odometer_after` poprzedniego wpisu dla tego samego `vehicle_id`. Naruszenie = błąd DB z czytelnym komunikatem.
+### 2. `src/app/auth/callback/route.ts` — UTWÓRZ NOWY
 
-**Konsekwencja:** bulk insert symulacji MUSI być posortowany chronologicznie i każdy wpis musi mieć poprawne wartości licznika narastająco.
-
-### 2. RPC `next_entry_number`
-Każdy wpis wymaga unikalnego `entry_number` pobranego przez:
-```typescript
-const { data: nextNum } = await supabase.schema('vat_km')
-  .rpc('next_entry_number', { p_vehicle_id: vehicleId })
-```
-Przy bulk insert użyj nowego RPC `next_n_entry_numbers` (dodanego w Sprint 1).
-
-### 3. Schema `vat_km`
-Każde zapytanie Supabase MUSI zawierać `.schema('vat_km')`. Bez tego zapytania trafiają do publicznego schematu i zwracają błąd.
-
-## Role użytkowników
+Serwerowy endpoint obsługujący powrót z Google OAuth.
+Sprawdza whitelist i wpuszcza lub odrzuca użytkownika.
 
 ```typescript
-type UserRole = 'administrator' | 'ksiegowosc' | 'kierowca' | 'kontrola'
+import { NextResponse } from 'next/server'
+import { type NextRequest } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function GET(request: NextRequest) {
+  const { searchParams, origin } = new URL(request.url)
+  const code = searchParams.get('code')
+
+  if (!code) {
+    return NextResponse.redirect(`${origin}/login?error=no_code`)
+  }
+
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // Wymień code na sesję
+  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  if (error) {
+    return NextResponse.redirect(`${origin}/login?error=auth_error`)
+  }
+
+  // Pobierz zalogowanego użytkownika
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user?.email) {
+    return NextResponse.redirect(`${origin}/login?error=no_user`)
+  }
+
+  // Sprawdź whitelist w auth_hub
+  const { data: allowed } = await supabase
+    .rpc('check_email_allowed', { p_email: user.email })
+
+  if (!allowed) {
+    // Email nie na whitelist — wyloguj i przekieruj z błędem
+    await supabase.auth.signOut()
+    return NextResponse.redirect(`${origin}/login?error=unauthorized`)
+  }
+
+  // Wpuść użytkownika
+  return NextResponse.redirect(`${origin}/dashboard`)
+}
 ```
 
-- `canAddTrips`: administrator, ksiegowosc, kierowca
-- `canViewSimulation`: **kierowca, administrator** (nowe)
-- `canManageDriverProfiles`: **kierowca (własne), administrator (wszystkie w firmie)** (nowe)
+---
 
-## Istniejąca funkcja do reużycia
+### 3. `src/lib/supabase/middleware.ts` — BEZ ZMIAN
 
-`getLastOdometer()` w `src/app/(app)/wpisy/nowy/page.tsx` — w Sprint 1 przenieś ją do `src/lib/trips/odometer.ts` i rozszerz o zwracanie daty ostatniego wpisu.
+Middleware już poprawnie:
+- odświeża sesję
+- przekierowuje niezalogowanych na `/login`
+- przekierowuje zalogowanych z `/login` na `/dashboard`
 
-## Nowe pliki w tym projekcie
+Upewnij się tylko że `/auth/callback` jest wykluczony z matchera w `src/middleware.ts` — dodaj `auth/callback` do listy ignorowanych ścieżek:
 
-Zadania podzielone na sprinty w katalogu `tasks/`:
-- `tasks/sprint-1.md` — algorytm i typy (bez UI, bez Supabase)
-- `tasks/sprint-2.md` — API routes
-- `tasks/sprint-3.md` — UI i Sidebar
+```typescript
+// src/middleware.ts — zaktualizuj matcher:
+'/((?!_next/static|_next/image|favicon.ico|setup|api/setup|api/auth|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+```
+
+---
+
+### 4. Czego NIE zmieniać
+
+- `src/lib/supabase/client.ts`, `server.ts`, `middleware.ts` — bez zmian
+- Wszystkie strony w `src/app/(app)/` — bez zmian
+- Style, Tailwind config — bez zmian
+- `next.config.mjs`, `tsconfig.json` — bez zmian
+- Zmienne środowiskowe w `.env.local` — Supabase URL już wskazuje na Auth Hub, bez zmian
+
+---
+
+## Weryfikacja po implementacji
+
+1. `npm run build` musi przejść bez błędów TypeScript
+2. `npm run dev` — wejdź na `http://localhost:3000`
+3. Powinien pokazać się ekran logowania z przyciskiem Google (bez formularza email/hasło)
+4. Kliknięcie przycisku → Google → powrót na `/auth/callback` → whitelist check → `/dashboard`
+5. Email spoza whitelist → wylogowanie → `/login?error=unauthorized` → komunikat o braku dostępu
+
+---
+
+## Uruchomienie Claude Code
+
+Sklonuj repo lokalnie, następnie:
+
+```bash
+cd ewidencja-pojazdow
+npm install
+```
+
+Wklej do Claude Code:
+```
+Przeczytaj CLAUDE.md i zaimplementuj system logowania zgodnie ze specyfikacją.
+Kolejność: 1) zaktualizuj src/middleware.ts matcher, 2) utwórz src/app/auth/callback/route.ts,
+3) zastąp src/app/(auth)/login/page.tsx. Na końcu uruchom npm run build.
+```
