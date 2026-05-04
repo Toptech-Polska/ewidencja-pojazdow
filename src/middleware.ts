@@ -16,6 +16,6 @@ export const config = {
      * - api/setup (skrypt tworzenia konta)
      * - api/auth (logika logowania)
      */
-    '/((?!_next/static|_next/image|favicon.ico|setup|api/setup|api/auth|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|setup|api/setup|api/auth|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

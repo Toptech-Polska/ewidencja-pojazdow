@@ -62,10 +62,11 @@ export default function NowyPojazd() {
           <form onSubmit={handleSubmit} className="p-5 space-y-5">
             {/* Numer rejestracyjny */}
             <div>
-              <label className="form-label">
+              <label htmlFor="plate_number" className="form-label">
                 Numer rejestracyjny <span className="text-red-500">*</span>
               </label>
               <input
+                id="plate_number"
                 name="plate_number"
                 required
                 autoFocus
@@ -78,10 +79,11 @@ export default function NowyPojazd() {
             {/* Marka / Model */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="form-label">
+                <label htmlFor="make" className="form-label">
                   Marka <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="make"
                   name="make"
                   required
                   className="form-input"
@@ -89,10 +91,11 @@ export default function NowyPojazd() {
                 />
               </div>
               <div>
-                <label className="form-label">
+                <label htmlFor="model" className="form-label">
                   Model <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="model"
                   name="model"
                   required
                   className="form-input"
@@ -103,10 +106,11 @@ export default function NowyPojazd() {
 
             {/* VIN */}
             <div>
-              <label className="form-label">
+              <label htmlFor="vin" className="form-label">
                 VIN <span className="text-slate-400 font-normal">(opcjonalnie)</span>
               </label>
               <input
+                id="vin"
                 name="vin"
                 className="form-input font-mono"
                 placeholder="17 znaków"
@@ -117,10 +121,11 @@ export default function NowyPojazd() {
             {/* Licznik / Data */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="form-label">
+                <label htmlFor="odometer_start" className="form-label">
                   Stan licznika na start <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="odometer_start"
                   name="odometer_start"
                   type="number"
                   min="0"
@@ -131,10 +136,11 @@ export default function NowyPojazd() {
                 <p className="form-hint">km na początku prowadzenia ewidencji</p>
               </div>
               <div>
-                <label className="form-label">
+                <label htmlFor="record_start_date" className="form-label">
                   Początek ewidencji <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="record_start_date"
                   name="record_start_date"
                   type="date"
                   required
@@ -149,11 +155,12 @@ export default function NowyPojazd() {
                 VAT-26 — art. 86a ustawy o VAT
               </p>
               <div>
-                <label className="form-label">
+                <label htmlFor="vat26_first_expense_date" className="form-label">
                   Data pierwszego wydatku związanego z pojazdem
                   <span className="text-slate-400 font-normal"> (opcjonalnie)</span>
                 </label>
                 <input
+                  id="vat26_first_expense_date"
                   name="vat26_first_expense_date"
                   type="date"
                   className="form-input"
