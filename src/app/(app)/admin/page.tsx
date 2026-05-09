@@ -1,28 +1,10 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { fetchWhitelist, isCurrentUserGlobalAdmin } from '@/lib/auth_hub'
 import { Topbar } from '@/components/layout/Topbar'
 import { AdminUsersClient } from './AdminUsersClient'
 import { WhitelistManager } from './WhitelistManager'
-import type { UserRole, Profile, AllowedEmail } from '@/types/database'
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  administrator: 'Administrator',
-  ksiegowosc:    'Księgowość',
-  kierowca:      'Kierowca',
-  kontrola:      'Kontrola',
-}
-const ROLE_BADGE: Record<UserRole, string> = {
-  administrator: 'badge-info',
-  ksiegowosc:    'badge-warn',
-  kierowca:      'badge-gray',
-  kontrola:      'badge-info',
-}
-const ROLE_PERMS: Record<UserRole, string> = {
-  administrator: 'Pełny dostęp do systemu',
-  ksiegowosc:    'Raporty, VAT-26, zatwierdzanie, eksport',
-  kierowca:      'Własne wpisy ewidencji',
-  kontrola:      'Odczyt, eksport, historia zmian',
-}
+import type { UserRole, Profile } from '@/types/database'
 
 const PERMS_MATRIX = [
   { action: 'Dodaj / edytuj własne wpisy',              administrator: 'tak', ksiegowosc: 'tak', kierowca: 'własne', kontrola: 'nie' },
@@ -70,22 +52,13 @@ export default async function AdminPage() {
     .order('role_assigned', { ascending: true })  // pendingi na górze
     .order('full_name')
 
-  // Whitelist (RLS pozwala każdemu zalogowanemu czytać)
-  const { data: whitelist } = await supabase
-    .schema('auth_hub')
-    .from('allowed_emails')
-    .select('email, added_by, added_at, is_active, note')
-    .order('added_at', { ascending: false })
-
-  // Czy aktualny user jest globalnym adminem Auth Hub (może edytować whitelist)
-  const { data: globalRoles } = await supabase
-    .schema('auth_hub')
-    .from('user_app_roles')
-    .select('role')
-    .eq('user_id', user.id)
-    .eq('role', 'admin')
-    .limit(1)
-  const isGlobalAdmin = !!globalRoles && globalRoles.length > 0
+  // auth_hub jest niedostępny przez REST (schema not exposed) — fetch przez
+  // helper, który używa admin klienta i sprawdza uprawnienia przez RPC.
+  // Równoległe pobranie obu wartości.
+  const [whitelist, isGlobalAdmin] = await Promise.all([
+    fetchWhitelist(),
+    isCurrentUserGlobalAdmin(),
+  ])
 
   return (
     <div className="flex flex-col h-full">
@@ -98,7 +71,7 @@ export default async function AdminPage() {
             <span className="card-title">Whitelist Auth Hub</span>
           </div>
           <WhitelistManager
-            whitelist={(whitelist ?? []) as AllowedEmail[]}
+            whitelist={whitelist}
             isGlobalAdmin={isGlobalAdmin}
           />
         </div>
