@@ -33,7 +33,8 @@ export async function fetchWhitelist(): Promise<AllowedEmail[]> {
   const isAdmin = await isCurrentUserGlobalAdmin()
   if (!isAdmin) return []
 
-  const adminClient = await createAdminClient()
+  // createAdminClient nie jest async (nie używa cookies)
+  const adminClient = createAdminClient()
   const { data, error } = await adminClient
     .schema('auth_hub')
     .from('allowed_emails')
