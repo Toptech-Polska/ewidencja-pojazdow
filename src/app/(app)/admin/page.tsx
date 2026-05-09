@@ -2,7 +2,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Topbar } from '@/components/layout/Topbar'
 import { AdminUsersClient } from './AdminUsersClient'
-import type { UserRole, Profile } from '@/types/database'
+import { WhitelistManager } from './WhitelistManager'
+import type { UserRole, Profile, AllowedEmail } from '@/types/database'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   administrator: 'Administrator',
@@ -45,36 +46,67 @@ function PermBadge({ val }: { val: string }) {
 export default async function AdminPage() {
   const supabase = await createClient()
 
-  // Guard: tylko administrator może wejść na tę stronę
+  // Guard: tylko administrator (vat_km) z role_assigned=true może wejść
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: currentProfile } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('role')
+    .select('role, role_assigned')
     .eq('id', user.id)
     .single()
 
-  if (currentProfile?.role !== 'administrator') {
+  if (currentProfile?.role !== 'administrator' || currentProfile?.role_assigned !== true) {
     redirect('/dashboard')
   }
 
+  // Profile zalogowanych userów (włącznie z pendingami — tymi co się zalogowali,
+  // ale jeszcze nie mają nadanej roli)
   const { data: profiles } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('id, full_name, email, role, is_active, created_at')
+    .select('id, full_name, email, role, is_active, role_assigned, created_at, company_id, simulation_config')
+    .order('role_assigned', { ascending: true })  // pendingi na górze
     .order('full_name')
+
+  // Whitelist (RLS pozwala każdemu zalogowanemu czytać)
+  const { data: whitelist } = await supabase
+    .schema('auth_hub')
+    .from('allowed_emails')
+    .select('email, added_by, added_at, is_active, note')
+    .order('added_at', { ascending: false })
+
+  // Czy aktualny user jest globalnym adminem Auth Hub (może edytować whitelist)
+  const { data: globalRoles } = await supabase
+    .schema('auth_hub')
+    .from('user_app_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'admin')
+    .limit(1)
+  const isGlobalAdmin = !!globalRoles && globalRoles.length > 0
 
   return (
     <div className="flex flex-col h-full">
       <Topbar title="Administracja — użytkownicy" />
 
       <div className="main-scroll p-5 space-y-4">
+        {/* Whitelist (Auth Hub) */}
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Whitelist Auth Hub</span>
+          </div>
+          <WhitelistManager
+            whitelist={(whitelist ?? []) as AllowedEmail[]}
+            isGlobalAdmin={isGlobalAdmin}
+          />
+        </div>
+
         {/* Users list */}
         <div className="card">
           <div className="card-head">
-            <span className="card-title">Użytkownicy systemu</span>
+            <span className="card-title">Użytkownicy aplikacji</span>
           </div>
           <AdminUsersClient profiles={(profiles ?? []) as Profile[]} />
         </div>
