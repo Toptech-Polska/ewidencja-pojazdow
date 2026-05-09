@@ -54,6 +54,7 @@ export interface Profile {
   email: string
   role: UserRole
   is_active: boolean
+  role_assigned: boolean
   simulation_config: SimulationConfig | null
   created_at: string
 }
@@ -146,6 +147,24 @@ export interface AuditLog {
   ip_address: string | null
   user_agent: string | null
   created_at: string
+}
+
+// ─── ONBOARDING / WHITELIST ───────────────────────────────────
+
+export interface OnboardingStatus {
+  has_profile: boolean
+  role_assigned: boolean
+  role: UserRole | null
+  full_name: string | null
+  is_active: boolean | null
+}
+
+export interface AllowedEmail {
+  email: string
+  added_by: string | null
+  added_at: string
+  is_active: boolean
+  note: string | null
 }
 
 // ─── VIEW TYPES ───────────────────────────────────────────────
