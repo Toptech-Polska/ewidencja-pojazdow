@@ -48,7 +48,8 @@ async function ensureGlobalAdmin() {
   }
 
   // Wszystko OK — zwróć admin client do operacji na auth_hub
-  const adminClient = await createAdminClient()
+  // (createAdminClient nie jest async — nie używa cookies)
+  const adminClient = createAdminClient()
   return { adminClient, userEmail: user.email ?? user.id }
 }
 
