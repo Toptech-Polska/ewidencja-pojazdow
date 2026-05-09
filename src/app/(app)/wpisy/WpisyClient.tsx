@@ -164,7 +164,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td className="text-slate-600 whitespace-nowrap text-xs">
                       {t.driver_name_external
                         ? <>{t.driver_name_external} <span className="text-amber-600">(zewn.)</span></>
-                        : (t.profiles as any)?.full_name ?? '—'
+                        : (t.driver as any)?.full_name ?? '—'
                       }
                     </td>
                     <td>
