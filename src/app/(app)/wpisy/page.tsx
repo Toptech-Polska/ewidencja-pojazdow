@@ -10,6 +10,11 @@ export default async function WpisyPage({
 }) {
   const supabase = await createClient()
 
+  // UWAGA: trip_entries ma TRZY foreign keys do vat_km.profiles
+  // (driver_id, created_by, confirmed_by). PostgREST przy `profiles(...)`
+  // bez aliasu rzuca błąd "more than one relationship was found" i całe
+  // zapytanie zwraca null. Dlatego embed JOIN z driver musi być explicit:
+  // `driver:profiles!driver_id(full_name)`.
   const [{ data: vehicles }, { data: trips }] = await Promise.all([
     supabase
       .schema('vat_km')
@@ -21,7 +26,7 @@ export default async function WpisyPage({
     supabase
       .schema('vat_km')
       .from('trip_entries')
-      .select('*, vehicles(plate_number, make, model), profiles(full_name)')
+      .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
       .order('created_at', { ascending: false }),
   ])
 
