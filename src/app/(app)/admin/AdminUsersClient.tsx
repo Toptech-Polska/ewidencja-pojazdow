@@ -6,7 +6,7 @@ import type { Profile, UserRole } from '@/types/database'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   administrator: 'Administrator',
-  ksiegowosc:    'Ksiegowosc',
+  ksiegowosc:    'Księgowość',
   kierowca:      'Kierowca',
   kontrola:      'Kontrola',
 }
@@ -17,114 +17,30 @@ const ROLE_BADGE: Record<UserRole, string> = {
   kontrola:      'badge-info',
 }
 
-// ── Add User Modal ────────────────────────────────────────────────────────────
-
-function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [f, setF] = useState({ email: '', full_name: '', role: 'kierowca' as UserRole, password: '' })
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState<string | null>(null)
-  const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({})
-
-  function validate() {
-    const e: Record<string, string> = {}
-    if (!f.email.includes('@'))         e.email     = 'Podaj prawidlowy email'
-    if (f.full_name.trim().length < 2)  e.full_name = 'Imie i nazwisko (min. 2 znaki)'
-    if (f.password.length < 8)          e.password  = 'Haslo musi miec co najmniej 8 znakow'
-    setFieldErrs(e)
-    return Object.keys(e).length === 0
-  }
-
-  async function handleCreate() {
-    if (!validate()) return
-    setSaving(true); setError(null)
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(f),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Blad tworzenia uzytkownika'); setSaving(false); return }
-      onCreated()
-    } catch {
-      setError('Blad polaczenia z serwerem')
-    }
-    setSaving(false)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-800">Dodaj nowego uzytkownika</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
-        </div>
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="form-label">Email <span className="text-red-500">*</span></label>
-            <input type="email" className={`form-input ${fieldErrs.email ? 'form-input-error' : ''}`}
-              value={f.email} onChange={e => setF(p => ({ ...p, email: e.target.value }))}
-              placeholder="imie@firma.pl" />
-            {fieldErrs.email && <p className="form-error">{fieldErrs.email}</p>}
-          </div>
-          <div>
-            <label className="form-label">Imie i nazwisko <span className="text-red-500">*</span></label>
-            <input type="text" className={`form-input ${fieldErrs.full_name ? 'form-input-error' : ''}`}
-              value={f.full_name} onChange={e => setF(p => ({ ...p, full_name: e.target.value }))}
-              placeholder="Jan Kowalski" />
-            {fieldErrs.full_name && <p className="form-error">{fieldErrs.full_name}</p>}
-          </div>
-          <div>
-            <label className="form-label">Rola <span className="text-red-500">*</span></label>
-            <select className="form-input" value={f.role}
-              onChange={e => setF(p => ({ ...p, role: e.target.value as UserRole }))}>
-              {(Object.keys(ROLE_LABELS) as UserRole[]).map(r => (
-                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Haslo tymczasowe <span className="text-red-500">*</span></label>
-            <input type="password" className={`form-input ${fieldErrs.password ? 'form-input-error' : ''}`}
-              value={f.password} onChange={e => setF(p => ({ ...p, password: e.target.value }))}
-              placeholder="Min. 8 znakow" />
-            {fieldErrs.password
-              ? <p className="form-error">{fieldErrs.password}</p>
-              : <p className="form-hint">Uzytkownik bedzie mogl zmienic haslo po pierwszym logowaniu.</p>
-            }
-          </div>
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
-          )}
-        </div>
-        <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-outline">Anuluj</button>
-          <button onClick={handleCreate} disabled={saving} className="btn-primary">
-            {saving ? 'Tworzenie...' : 'Utworz konto'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Inline quick-edit (role + active) ────────────────────────────────────────
+// ── Inline quick-edit (full_name + role + active) ─────────────────────────────
 
 interface EditState {
-  id: string; full_name: string; role: UserRole; is_active: boolean
+  id: string
+  full_name: string
+  role: UserRole
+  is_active: boolean
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
   const router = useRouter()
-  const [editing,    setEditing]    = useState<EditState | null>(null)
-  const [saving,     setSaving]     = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
-  const [showAddModal, setShowAddModal] = useState(false)
+  const [editing, setEditing] = useState<EditState | null>(null)
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
 
   function startEdit(p: Profile) {
-    setEditing({ id: p.id, full_name: p.full_name, role: p.role, is_active: p.is_active })
+    setEditing({
+      id: p.id,
+      full_name: p.full_name,
+      role: p.role,
+      is_active: p.is_active,
+    })
     setError(null)
   }
 
@@ -135,30 +51,33 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
       const res = await fetch(`/api/profiles/${editing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: editing.full_name, role: editing.role, is_active: editing.is_active }),
+        body: JSON.stringify({
+          full_name: editing.full_name,
+          role: editing.role,
+          is_active: editing.is_active,
+          // role_assigned ustawiany automatycznie po stronie API
+          // przy pierwszym nadaniu roli pendingowemu profilowi.
+        }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Blad zapisu'); setSaving(false); return }
+      if (!res.ok) { setError(data.error ?? 'Błąd zapisu'); setSaving(false); return }
       setEditing(null)
       router.refresh()
     } catch {
-      setError('Blad polaczenia z serwerem')
+      setError('Błąd połączenia z serwerem')
     }
     setSaving(false)
   }
 
-  function handleCreated() {
-    setShowAddModal(false)
-    router.refresh()
-  }
-
   return (
     <>
-      {/* Add user button */}
-      <div className="flex justify-end px-0 pb-3">
-        <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
-          + Dodaj uzytkownika
-        </button>
+      <div className="px-0 pb-3">
+        <p className="text-xs text-slate-500">
+          Lista zalogowanych użytkowników. Konto powstaje automatycznie przy pierwszym
+          logowaniu Google. Aby udzielić komuś nowemu dostępu, dodaj jego email do
+          whitelist powyżej — następnie po jego pierwszym zalogowaniu pojawi się tutaj
+          jako „Oczekuje na rolę".
+        </p>
       </div>
 
       {error && (
@@ -168,16 +87,17 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
       <table className="data-table">
         <thead>
           <tr>
-            <th>Uzytkownik</th><th>Email</th><th>Rola</th><th>Status</th><th></th>
+            <th>Użytkownik</th><th>Email</th><th>Rola</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody>
           {profiles.map(p => {
             const initials = p.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
             const isEditing = editing?.id === p.id
+            const isPending = !p.role_assigned
 
             return (
-              <tr key={p.id}>
+              <tr key={p.id} className={isPending ? 'bg-amber-50/40' : ''}>
                 <td>
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold flex-shrink-0">
@@ -185,7 +105,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                     </div>
                     {isEditing ? (
                       <input className="form-input py-1 text-sm" value={editing.full_name}
-                        onChange={e => setEditing(prev => prev ? { ...prev, full_name: e.target.value } : prev)} />
+                        onChange={e => setEditing(prev => prev ? { ...prev, full_name: e.target.value } : prev)}
+                        placeholder="Imię i nazwisko" />
                     ) : (
                       <span className="font-semibold text-slate-800">{p.full_name}</span>
                     )}
@@ -200,6 +121,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                         <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                       ))}
                     </select>
+                  ) : isPending ? (
+                    <span className="badge badge-warn">Oczekuje na rolę</span>
                   ) : (
                     <span className={`badge ${ROLE_BADGE[p.role]}`}>{ROLE_LABELS[p.role]}</span>
                   )}
@@ -222,7 +145,7 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                     <div className="flex gap-2">
                       <button onClick={handleSave} disabled={saving}
                         className="text-xs text-white bg-blue-700 hover:bg-blue-800 font-medium px-2 py-1 rounded">
-                        {saving ? '...' : 'Zapisz'}
+                        {saving ? '...' : (isPending ? 'Nadaj rolę' : 'Zapisz')}
                       </button>
                       <button onClick={() => { setEditing(null); setError(null) }}
                         className="text-xs text-slate-500 hover:text-slate-700 font-medium">
@@ -232,13 +155,19 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                   ) : (
                     <div className="flex items-center gap-3">
                       <button onClick={() => startEdit(p)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap">
-                        Edytuj
+                        className={`text-xs font-medium whitespace-nowrap ${
+                          isPending
+                            ? 'text-amber-700 hover:text-amber-900'
+                            : 'text-blue-600 hover:text-blue-800'
+                        }`}>
+                        {isPending ? 'Nadaj rolę' : 'Edytuj'}
                       </button>
-                      <a href={`/admin/users/${p.id}`}
-                        className="text-xs text-slate-500 hover:text-slate-800 font-medium whitespace-nowrap">
-                        Pelny profil &rarr;
-                      </a>
+                      {!isPending && (
+                        <a href={`/admin/users/${p.id}`}
+                          className="text-xs text-slate-500 hover:text-slate-800 font-medium whitespace-nowrap">
+                          Pełny profil &rarr;
+                        </a>
+                      )}
                     </div>
                   )}
                 </td>
@@ -246,14 +175,10 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
             )
           })}
           {!profiles.length && (
-            <tr><td colSpan={5} className="text-center text-slate-400 py-6 text-sm">Brak uzytkownikow</td></tr>
+            <tr><td colSpan={5} className="text-center text-slate-400 py-6 text-sm">Brak użytkowników</td></tr>
           )}
         </tbody>
       </table>
-
-      {showAddModal && (
-        <AddUserModal onClose={() => setShowAddModal(false)} onCreated={handleCreated} />
-      )}
     </>
   )
 }
