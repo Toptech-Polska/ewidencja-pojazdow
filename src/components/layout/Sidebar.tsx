@@ -10,47 +10,50 @@ interface NavItem {
   label: string
   icon: string
   badge?: string
-  adminOnly?: boolean
-  driverOrAdmin?: boolean
+  adminOnly?: boolean       // tylko administrator
+  driverHidden?: boolean    // ukryte dla kierowcy
 }
 
 interface NavGroup {
   group: string
   items: NavItem[]
+  driverHidden?: boolean    // cała grupa ukryta dla kierowcy
 }
 
 const NAV: NavGroup[] = [
   {
     group: 'Główne',
     items: [
-      { href: '/dashboard',  label: 'Dashboard',       icon: '▦' },
-      { href: '/pojazdy',    label: 'Pojazdy',          icon: '◈' },
-      { href: '/wpisy',      label: 'Ewidencja',        icon: '≡', badge: 'pending' },
-      { href: '/symulacja',  label: 'Symulacja',        icon: '⟳', driverOrAdmin: true },
+      { href: '/dashboard', label: 'Dashboard',  icon: '◦' },
+      { href: '/pojazdy',   label: 'Pojazdy',    icon: '◈', driverHidden: true },
+      { href: '/wpisy',     label: 'Ewidencja',  icon: '≡', badge: 'pending' },
+      { href: '/symulacja', label: 'Symulacja',  icon: '⟳' },
     ],
   },
   {
     group: 'Raporty',
     items: [
-      { href: '/raporty',    label: 'Zestawienia',      icon: '◫' },
+      { href: '/raporty',   label: 'Zestawienia', icon: '◫' },
     ],
   },
   {
     group: 'Compliance',
+    driverHidden: true,
     items: [
-      { href: '/compliance', label: 'VAT-26 / Alerty',  icon: '!', badge: 'vat26' },
+      { href: '/compliance', label: 'VAT-26 / Alerty', icon: '!', badge: 'vat26' },
     ],
   },
   {
     group: 'Konto',
     items: [
-      { href: '/profil',     label: 'Mój profil',       icon: '◉' },
+      { href: '/profil', label: 'Mój profil', icon: '◉' },
     ],
   },
   {
     group: 'Admin',
+    driverHidden: true,
     items: [
-      { href: '/admin',      label: 'Użytkownicy',      icon: '⊕', adminOnly: true },
+      { href: '/admin', label: 'Użytkownicy', icon: '⊕', adminOnly: true },
     ],
   },
 ]
@@ -63,7 +66,7 @@ interface SidebarProps {
 export function Sidebar({ pendingCount = 0, vat26Count = 0 }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { profile, isAdmin, canViewSimulation } = useProfile()
+  const { profile, isAdmin, isDriver } = useProfile()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -93,10 +96,15 @@ export function Sidebar({ pendingCount = 0, vat26Count = 0 }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto">
         {NAV.map(group => {
-          const items = group.items.filter(i =>
-            (!i.adminOnly || isAdmin) &&
-            (!i.driverOrAdmin || canViewSimulation)
-          )
+          // Cała grupa ukryta dla kierowcy
+          if (isDriver && group.driverHidden) return null
+
+          const items = group.items.filter(item => {
+            if (item.adminOnly && !isAdmin) return false
+            if (item.driverHidden && isDriver) return false
+            return true
+          })
+
           if (!items.length) return null
 
           return (
