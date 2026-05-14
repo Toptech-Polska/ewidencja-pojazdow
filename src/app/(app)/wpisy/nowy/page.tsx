@@ -9,6 +9,8 @@ import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
 import type { DbError } from '@/lib/errors/db-errors'
 import type { Vehicle, Profile } from '@/types/database'
 
+const TODAY = new Date().toISOString().slice(0, 10)
+
 async function loadVehiclesAndProfiles() {
   const supabase = createClient()
   const [{ data: veh }, { data: prof }] = await Promise.all([
@@ -27,7 +29,7 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   const [error,  setError]  = useState<DbError | null>(null)
   const [errs,   setErrs]   = useState<Record<string, string>>({})
   const [f, setF] = useState({
-    vehicle_id: vehicles[0]?.id ?? '', trip_date: new Date().toISOString().slice(0, 10),
+    vehicle_id: vehicles[0]?.id ?? '', trip_date: TODAY,
     purpose: '', route_from: '', route_to: '', odometer_before: '', odometer_after: '',
     driver_type: 'internal' as 'internal' | 'external',
     driver_id: profiles[0]?.id ?? '', driver_name_external: '',
@@ -50,6 +52,7 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)        e.vehicle_id = 'Wybierz pojazd'
+    if (f.trip_date > TODAY)  e.trip_date  = 'Data nie może być w przyszłości'
     if (f.purpose.length < 5) e.purpose    = 'Podaj cel wyjazdu (min. 5 znakow)'
     if (!f.route_from)        e.route_from = 'Pole wymagane'
     if (!f.route_to)          e.route_to   = 'Pole wymagane'
@@ -111,8 +114,10 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         </div>
         <div>
           <label htmlFor="trip_date" className="form-label">Data wyjazdu <span className="text-red-500">*</span></label>
-          <input id="trip_date" type="date" className="form-input" value={f.trip_date}
+          <input id="trip_date" type="date" className={`form-input ${errs.trip_date ? 'form-input-error' : ''}`}
+            value={f.trip_date} max={TODAY}
             onChange={e => setF(p => ({ ...p, trip_date: e.target.value }))} />
+          {errs.trip_date && <p className="form-error">{errs.trip_date}</p>}
         </div>
       </div>
       <div>
@@ -209,7 +214,7 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
   const [error,  setError]  = useState<DbError | null>(null)
   const [errs,   setErrs]   = useState<Record<string, string>>({})
   const [f, setF] = useState({
-    vehicle_id: vehicles[0]?.id ?? '', loan_date: new Date().toISOString().slice(0, 10),
+    vehicle_id: vehicles[0]?.id ?? '', loan_date: TODAY,
     purpose: '', loaned_to_type: 'external' as 'internal' | 'external',
     loaned_to_user_id: '', loaned_to_name: '', odometer_at_issue: '', notes: '',
   })
@@ -226,10 +231,11 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!f.vehicle_id)  e.vehicle_id  = 'Wybierz pojazd'
-    if (!f.loan_date)   e.loan_date   = 'Podaj date'
-    if (f.purpose.length < 5) e.purpose = 'Podaj cel (min. 5 znakow)'
-    if (!f.odometer_at_issue) e.odometer_at_issue = 'Podaj stan licznika'
+    if (!f.vehicle_id)             e.vehicle_id  = 'Wybierz pojazd'
+    if (!f.loan_date)              e.loan_date   = 'Podaj date'
+    if (f.loan_date > TODAY)       e.loan_date   = 'Data nie może być w przyszłości'
+    if (f.purpose.length < 5)      e.purpose     = 'Podaj cel (min. 5 znakow)'
+    if (!f.odometer_at_issue)      e.odometer_at_issue = 'Podaj stan licznika'
     if (f.loaned_to_type === 'external' && !f.loaned_to_name) e.loaned_to_name = 'Podaj imie i nazwisko'
     if (f.loaned_to_type === 'internal' && !f.loaned_to_user_id) e.loaned_to_user_id = 'Wybierz pracownika'
     setErrs(e); return Object.keys(e).length === 0
@@ -281,7 +287,8 @@ function LoanForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         </div>
         <div>
           <label className="form-label">Data udostepnienia <span className="text-red-500">*</span></label>
-          <input type="date" className="form-input" value={f.loan_date}
+          <input type="date" className={`form-input ${errs.loan_date ? 'form-input-error' : ''}`}
+            value={f.loan_date} max={TODAY}
             onChange={e => setF(p => ({ ...p, loan_date: e.target.value }))} />
           {errs.loan_date && <p className="form-error">{errs.loan_date}</p>}
         </div>

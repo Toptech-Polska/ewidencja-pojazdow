@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
+const TODAY = new Date().toISOString().slice(0, 10)
+
 interface Props {
   vehicles:       any[]
   trips:          any[]
@@ -63,6 +65,10 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   }
 
   async function saveEdit() {
+    if (editDraft.trip_date > TODAY) {
+      setEditError('Data nie może być w przyszłości.')
+      return
+    }
     if (editDraft.purpose.trim().length < 5) {
       setEditError('Cel wyjazdu musi mieć co najmniej 5 znaków.')
       return
@@ -191,6 +197,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                         <input
                           type="date"
                           value={editDraft.trip_date}
+                          max={TODAY}
                           onChange={e => setEditDraft(p => ({ ...p, trip_date: e.target.value }))}
                           className="border border-slate-300 rounded px-2 py-1 text-xs w-32"
                         />
