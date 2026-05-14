@@ -3,21 +3,17 @@ import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { interpretDbError } from '@/lib/errors/db-errors'
 
+// Pola edytowalne przez inline edit: data, cel, trasa.
+// Liczniki (odometer_before, odometer_after) celowo wykluczone —
+// ich zmiana wymaga zachowania ciągłości i osobnego narzędzia.
 const TripPatchSchema = z.object({
-  trip_date: z.string().date().optional(),
-  purpose: z.string().min(5, 'Min. 5 znaków').max(500).optional(),
+  trip_date:  z.string().date().optional(),
+  purpose:    z.string().min(5, 'Min. 5 znaków').max(500).optional(),
   route_from: z.string().min(2).max(200).optional(),
-  route_to: z.string().min(2).max(200).optional(),
-  odometer_before: z.number().int().nonnegative().optional(),
-  odometer_after: z.number().int().positive().optional(),
+  route_to:   z.string().min(2).max(200).optional(),
 }).refine(
-  (d) => {
-    if (d.odometer_before !== undefined && d.odometer_after !== undefined) {
-      return d.odometer_after > d.odometer_before
-    }
-    return true
-  },
-  { message: 'Licznik po powrocie musi być większy niż przed wyjazdem', path: ['odometer_after'] }
+  (d) => Object.keys(d).length > 0,
+  { message: 'Brak pól do aktualizacji' }
 )
 
 export async function PATCH(
@@ -38,15 +34,12 @@ export async function PATCH(
   if (!parsed.success)
     return NextResponse.json({ error: 'Błąd walidacji', details: parsed.error.flatten() }, { status: 422 })
 
-  // Build update payload with ONLY provided fields
   const d = parsed.data
   const updatePayload: Record<string, unknown> = {}
-  if (d.trip_date !== undefined)       updatePayload.trip_date       = d.trip_date
-  if (d.purpose !== undefined)         updatePayload.purpose         = d.purpose
-  if (d.route_from !== undefined)      updatePayload.route_from      = d.route_from
-  if (d.route_to !== undefined)        updatePayload.route_to        = d.route_to
-  if (d.odometer_before !== undefined) updatePayload.odometer_before = d.odometer_before
-  if (d.odometer_after !== undefined)  updatePayload.odometer_after  = d.odometer_after
+  if (d.trip_date  !== undefined) updatePayload.trip_date  = d.trip_date
+  if (d.purpose    !== undefined) updatePayload.purpose    = d.purpose
+  if (d.route_from !== undefined) updatePayload.route_from = d.route_from
+  if (d.route_to   !== undefined) updatePayload.route_to   = d.route_to
 
   if (Object.keys(updatePayload).length === 0)
     return NextResponse.json({ error: 'Brak pól do aktualizacji' }, { status: 422 })

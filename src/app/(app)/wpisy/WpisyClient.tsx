@@ -12,12 +12,10 @@ interface Props {
 }
 
 interface EditDraft {
-  trip_date:        string
-  purpose:          string
-  route_from:       string
-  route_to:         string
-  odometer_before:  string
-  odometer_after:   string
+  trip_date:  string
+  purpose:    string
+  route_from: string
+  route_to:   string
 }
 
 export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, initialVehicle }: Props) {
@@ -29,7 +27,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
 
   // Inline edit state
   const [editingId, setEditingId]   = useState<string | null>(null)
-  const [editDraft, setEditDraft]   = useState<EditDraft>({ trip_date: '', purpose: '', route_from: '', route_to: '', odometer_before: '', odometer_after: '' })
+  const [editDraft, setEditDraft]   = useState<EditDraft>({ trip_date: '', purpose: '', route_from: '', route_to: '' })
   const [editError, setEditError]   = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
@@ -51,12 +49,10 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   function startEdit(trip: any) {
     setEditingId(trip.id)
     setEditDraft({
-      trip_date:       trip.trip_date,
-      purpose:         trip.purpose,
-      route_from:      trip.route_from,
-      route_to:        trip.route_to,
-      odometer_before: String(trip.odometer_before),
-      odometer_after:  String(trip.odometer_after),
+      trip_date:  trip.trip_date,
+      purpose:    trip.purpose,
+      route_from: trip.route_from,
+      route_to:   trip.route_to,
     })
     setEditError(null)
   }
@@ -67,12 +63,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   }
 
   async function saveEdit() {
-    const orig = trips.find(t => t.id === editingId)
-    if (!orig) return
-
-    const obNum = Number(editDraft.odometer_before)
-    const oaNum = Number(editDraft.odometer_after)
-
     if (editDraft.purpose.trim().length < 5) {
       setEditError('Cel wyjazdu musi mieć co najmniej 5 znaków.')
       return
@@ -81,28 +71,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
       setEditError('Wypełnij pola trasy (skąd i dokąd).')
       return
     }
-    if (isNaN(obNum) || obNum < 0) {
-      setEditError('Licznik przed wyjazdem musi być nieujemną liczbą całkowitą.')
-      return
-    }
-    if (isNaN(oaNum) || oaNum <= obNum) {
-      setEditError('Licznik po powrocie musi być większy niż przed wyjazdem.')
-      return
-    }
-
-    const odometerChanged = obNum !== orig.odometer_before || oaNum !== orig.odometer_after
-
-    const payload: Record<string, unknown> = {
-      trip_date:  editDraft.trip_date,
-      purpose:    editDraft.purpose,
-      route_from: editDraft.route_from,
-      route_to:   editDraft.route_to,
-    }
-    // Dodaj odometer TYLKO gdy się zmienił → trigger sprawdza ciągłość tylko wtedy
-    if (odometerChanged) {
-      payload.odometer_before = obNum
-      payload.odometer_after  = oaNum
-    }
 
     setEditSaving(true)
     setEditError(null)
@@ -110,7 +78,12 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
       const res = await fetch(`/api/trips/${editingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          trip_date:  editDraft.trip_date,
+          purpose:    editDraft.purpose,
+          route_from: editDraft.route_from,
+          route_to:   editDraft.route_to,
+        }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -118,7 +91,9 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
         return
       }
       setTrips(prev => prev.map(t =>
-        t.id === editingId ? { ...t, ...json } : t
+        t.id === editingId
+          ? { ...t, trip_date: json.trip_date, purpose: json.purpose, route_from: json.route_from, route_to: json.route_to }
+          : t
       ))
       setEditingId(null)
       setEditError(null)
@@ -252,28 +227,14 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                           />
                         </div>
                       </td>
-                      <td className="tabular-nums text-xs text-slate-500">
-                        {Number(editDraft.odometer_after) - Number(editDraft.odometer_before) || 0} km
+                      <td className="tabular-nums text-xs text-slate-400">
+                        {t.kilometers ?? (t.odometer_after - t.odometer_before)} km
+                      </td>
+                      <td className="text-xs text-slate-400 tabular-nums">
+                        {t.odometer_before.toLocaleString('pl-PL')} → {t.odometer_after.toLocaleString('pl-PL')}
                       </td>
                       <td>
-                        <div className="flex gap-1">
-                          <input
-                            type="number"
-                            value={editDraft.odometer_before}
-                            onChange={e => setEditDraft(p => ({ ...p, odometer_before: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-20"
-                          />
-                          <span className="text-slate-400">→</span>
-                          <input
-                            type="number"
-                            value={editDraft.odometer_after}
-                            onChange={e => setEditDraft(p => ({ ...p, odometer_after: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-20"
-                          />
-                        </div>
-                      </td>
-                      <td>
-                        {t.driver_name_external || (t.profiles as any)?.full_name || '—'}
+                        {t.driver_name_external || (t.driver as any)?.full_name || '—'}
                       </td>
                       <td>
                         <span className="badge badge-info">Edycja</span>
@@ -303,7 +264,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                 }
 
                 // ── Normal row ───────────────────────────────────────────────
-                const km = t.kilometers ?? (t.odometer_after - t.odometer_before)
+                const km      = t.kilometers ?? (t.odometer_after - t.odometer_before)
                 const purpose = t.purpose.length > 40 ? t.purpose.slice(0, 38) + '…' : t.purpose
                 return (
                   <tr key={t.id} className={needsConfirm ? 'bg-amber-50/40' : ''}>
@@ -327,7 +288,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td className="text-slate-600 whitespace-nowrap text-xs">
                       {t.driver_name_external
                         ? <>{t.driver_name_external} <span className="text-amber-600">(zewn.)</span></>
-                        : (t.profiles as any)?.full_name ?? '—'}
+                        : (t.driver as any)?.full_name ?? '—'}
                     </td>
                     <td>
                       {needsConfirm
