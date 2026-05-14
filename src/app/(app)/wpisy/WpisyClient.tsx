@@ -26,9 +26,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   const [filter, setFilter]         = useState<'all' | 'pending'>(initialFilter)
   const [selVid, setSelVid]         = useState(initialVehicle)
   const [confirming, setConfirming] = useState<string | null>(null)
-  const [editing, setEditing]       = useState<EditState | null>(null)
-  const [saving, setSaving]         = useState(false)
-  const [editError, setEditError]   = useState<string | null>(null)
 
   // Inline edit state
   const [editingId, setEditingId]   = useState<string | null>(null)
@@ -50,47 +47,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
     .filter(t => { const d = new Date(t.trip_date); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear() })
     .reduce((s, t) => s + (t.kilometers ?? 0), 0)
   const maxOdo  = vTrips.length ? Math.max(...vTrips.map(t => t.odometer_after)) : selV?.odometer_start ?? 0
-
-  function startEdit(t: any) {
-    setEditing({ id: t.id, trip_date: t.trip_date, purpose: t.purpose, route_from: t.route_from, route_to: t.route_to })
-    setEditError(null)
-  }
-
-  function cancelEdit() { setEditing(null); setEditError(null) }
-
-  async function saveEdit() {
-    if (!editing) return
-    setSaving(true); setEditError(null)
-    try {
-      const res = await fetch(`/api/trips/${editing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          trip_date:  editing.trip_date,
-          purpose:    editing.purpose,
-          route_from: editing.route_from,
-          route_to:   editing.route_to,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setEditError(data.error ?? 'Błąd zapisu'); setSaving(false); return }
-      setTrips(prev => prev.map(t => t.id === editing.id
-        ? { ...t, trip_date: data.trip_date, purpose: data.purpose, route_from: data.route_from, route_to: data.route_to, updated_at: data.updated_at }
-        : t
-      ))
-      setEditing(null)
-      router.refresh()
-    } catch { setEditError('Błąd połączenia z serwerem') }
-    setSaving(false)
-  }
-
-  async function confirmTrip(id: string) {
-    setConfirming(id)
-    const res = await fetch(`/api/trips/${id}/confirm`, { method: 'PATCH' })
-    if (res.ok) setTrips(prev => prev.map(t => t.id === id ? { ...t, confirmed_by_company: true, confirmed_at: new Date().toISOString() } : t))
-    setConfirming(null)
-    router.refresh()
-  }
 
   function startEdit(trip: any) {
     setEditingId(trip.id)
@@ -117,7 +73,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
     const obNum = Number(editDraft.odometer_before)
     const oaNum = Number(editDraft.odometer_after)
 
-    // Frontend basic validation
     if (editDraft.purpose.trim().length < 5) {
       setEditError('Cel wyjazdu musi mieć co najmniej 5 znaków.')
       return
@@ -162,17 +117,25 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
         setEditError(json.message || json.error || 'Błąd zapisu.')
         return
       }
-      // Merge updated fields into trips state
       setTrips(prev => prev.map(t =>
         t.id === editingId ? { ...t, ...json } : t
       ))
       setEditingId(null)
       setEditError(null)
+      router.refresh()
     } catch {
       setEditError('Błąd połączenia z serwerem.')
     } finally {
       setEditSaving(false)
     }
+  }
+
+  async function confirmTrip(id: string) {
+    setConfirming(id)
+    const res = await fetch(`/api/trips/${id}/confirm`, { method: 'PATCH' })
+    if (res.ok) setTrips(prev => prev.map(t => t.id === id ? { ...t, confirmed_by_company: true, confirmed_at: new Date().toISOString() } : t))
+    setConfirming(null)
+    router.refresh()
   }
 
   return (
@@ -242,7 +205,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
               )}
               {filtered.map(t => {
                 const veh          = t.vehicles as any
-                const isEditing    = editing?.id === t.id
                 const needsConfirm = t.requires_confirmation && !t.confirmed_by_company
 
                 // ── Inline edit row ──────────────────────────────────────────
@@ -310,10 +272,10 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                           />
                         </div>
                       </td>
-                      <td>{/* kierowca - display only */}
+                      <td>
                         {t.driver_name_external || (t.profiles as any)?.full_name || '—'}
                       </td>
-                      <td>{/* status - display only */}
+                      <td>
                         <span className="badge badge-info">Edycja</span>
                       </td>
                       <td>
@@ -344,52 +306,20 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                 const km = t.kilometers ?? (t.odometer_after - t.odometer_before)
                 const purpose = t.purpose.length > 40 ? t.purpose.slice(0, 38) + '…' : t.purpose
                 return (
-                  <tr key={t.id} className={isEditing ? 'bg-blue-50/60' : needsConfirm ? 'bg-amber-50/40' : ''}>
+                  <tr key={t.id} className={needsConfirm ? 'bg-amber-50/40' : ''}>
                     <td className="font-bold text-slate-900 tabular-nums">{t.entry_number}</td>
-
-                    {/* Data */}
                     <td className="whitespace-nowrap">
-                      {isEditing
-                        ? <input type="date" className="form-input py-0.5 text-xs w-32 tabular-nums"
-                            value={editing.trip_date}
-                            onChange={e => setEditing(p => p ? { ...p, trip_date: e.target.value } : p)} />
-                        : <span className="text-slate-500 tabular-nums text-xs">{new Date(t.trip_date).toLocaleDateString('pl-PL')}</span>
-                      }
+                      <span className="text-slate-500 tabular-nums text-xs">{new Date(t.trip_date).toLocaleDateString('pl-PL')}</span>
                     </td>
-
                     <td>
                       <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">{veh?.plate_number}</span>
                     </td>
-
-                    {/* Cel wyjazdu */}
                     <td className="max-w-xs">
-                      {isEditing
-                        ? <input type="text" className="form-input py-0.5 text-xs w-full min-w-[200px]"
-                            value={editing.purpose}
-                            onChange={e => setEditing(p => p ? { ...p, purpose: e.target.value } : p)}
-                            placeholder="Cel wyjazdu" />
-                        : <span className="text-xs">{t.purpose.length > 42 ? t.purpose.slice(0, 40) + '…' : t.purpose}</span>
-                      }
+                      <span className="text-xs">{purpose}</span>
                     </td>
-
-                    {/* Trasa */}
                     <td className="whitespace-nowrap">
-                      {isEditing
-                        ? <div className="flex items-center gap-1">
-                            <input type="text" className="form-input py-0.5 text-xs w-28"
-                              value={editing.route_from}
-                              onChange={e => setEditing(p => p ? { ...p, route_from: e.target.value } : p)}
-                              placeholder="Skąd" />
-                            <span className="text-slate-400 text-xs">→</span>
-                            <input type="text" className="form-input py-0.5 text-xs w-28"
-                              value={editing.route_to}
-                              onChange={e => setEditing(p => p ? { ...p, route_to: e.target.value } : p)}
-                              placeholder="Dokąd" />
-                          </div>
-                        : <span className="text-xs text-slate-500">{t.route_from.split(',')[0]} → {t.route_to.split(',')[0]}</span>
-                      }
+                      <span className="text-xs text-slate-500">{t.route_from.split(',')[0]} → {t.route_to.split(',')[0]}</span>
                     </td>
-
                     <td className="font-bold whitespace-nowrap tabular-nums text-xs">{km} km</td>
                     <td className="text-xs text-slate-400 whitespace-nowrap tabular-nums">
                       {t.odometer_before.toLocaleString('pl-PL')} → {t.odometer_after.toLocaleString('pl-PL')}
@@ -397,7 +327,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td className="text-slate-600 whitespace-nowrap text-xs">
                       {t.driver_name_external
                         ? <>{t.driver_name_external} <span className="text-amber-600">(zewn.)</span></>
-                        : (t.driver as any)?.full_name ?? '—'}
+                        : (t.profiles as any)?.full_name ?? '—'}
                     </td>
                     <td>
                       {needsConfirm
