@@ -89,7 +89,7 @@ function LoginContent() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'https://pojazdy.tsps.pl/auth/callback',
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
   }
