@@ -22,44 +22,45 @@ async function loadData() {
   return { currentUserId: user?.id ?? null, vehicles: veh ?? [], profiles: prof ?? [] }
 }
 
-// ── Pure helper — build return entry from original ────────────────────────────
+// ─── pure helper ────────────────────────────────────────────────────────────
 function buildReturnEntry(orig: {
-  vehicle_id: string; trip_date: string; driver_id?: string; driver_name_external?: string;
-  route_from: string; route_to: string; odometer_after: number; kilometers: number;
+  vehicle_id: string; trip_date: string; driver_id?: string | null
+  driver_name_external?: string | null; route_from: string; route_to: string
+  odometer_before: number; odometer_after: number; created_by: string
 }) {
+  const km = orig.odometer_after - orig.odometer_before
   return {
     vehicle_id:           orig.vehicle_id,
     trip_date:            orig.trip_date,
-    driver_id:            orig.driver_id ?? null,
-    driver_name_external: orig.driver_name_external ?? null,
     purpose:              'Powrót do siedziby firmy',
     route_from:           orig.route_to,
     route_to:             orig.route_from,
     odometer_before:      orig.odometer_after,
-    odometer_after:       orig.odometer_after + orig.kilometers,
+    odometer_after:       orig.odometer_after + km,
+    driver_id:            orig.driver_id ?? null,
+    driver_name_external: orig.driver_name_external ?? null,
   }
 }
 
 function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; profiles: Profile[]; currentUserId: string | null }) {
   const router = useRouter()
-  const [saving,      setSaving]      = useState(false)
-  const [saved,       setSaved]       = useState(false)
-  const [saveMsg,     setSaveMsg]     = useState('')
-  const [error,       setError]       = useState<DbError | null>(null)
-  const [errs,        setErrs]        = useState<Record<string, string>>({})
+  const [saving, setSaving]       = useState(false)
+  const [saved,  setSaved]        = useState(false)
+  const [saveMsg, setSaveMsg]     = useState('')
+  const [error,  setError]        = useState<DbError | null>(null)
+  const [errs,   setErrs]         = useState<Record<string, string>>({})
   const [createReturn, setCreateReturn] = useState(false)
 
-  // Sort profiles: current user first, rest alphabetically
-  const sortedProfiles = [
-    ...profiles.filter(p => p.id === currentUserId),
-    ...profiles.filter(p => p.id !== currentUserId),
-  ]
+  // Zalogowany user na górze listy
+  const currentProfile = profiles.find(p => p.id === currentUserId)
+  const otherProfiles  = profiles.filter(p => p.id !== currentUserId)
+  const sortedProfiles = currentProfile ? [currentProfile, ...otherProfiles] : profiles
 
   const [f, setF] = useState({
     vehicle_id: vehicles[0]?.id ?? '', trip_date: TODAY,
     purpose: '', route_from: '', route_to: '', odometer_before: '', odometer_after: '',
     driver_type: 'internal' as 'internal' | 'external',
-    driver_id: currentUserId ?? sortedProfiles[0]?.id ?? '',
+    driver_id: currentUserId ?? (sortedProfiles[0]?.id ?? ''),
     driver_name_external: '',
   })
 
@@ -99,34 +100,34 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
     setSaving(true); setError(null)
     try {
       // 1. Zapisz oryginalny wpis
-      const origPayload = {
-        vehicle_id: f.vehicle_id, trip_date: f.trip_date, purpose: f.purpose,
-        route_from: f.route_from, route_to: f.route_to,
-        odometer_before: obNum, odometer_after: oaNum,
-        driver_id:            f.driver_type === 'internal'  ? f.driver_id            : undefined,
-        driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
-      }
       const res = await fetch('/api/trips', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(origPayload),
+        body: JSON.stringify({
+          vehicle_id: f.vehicle_id, trip_date: f.trip_date, purpose: f.purpose,
+          route_from: f.route_from, route_to: f.route_to,
+          odometer_before: obNum, odometer_after: oaNum,
+          driver_id: f.driver_type === 'internal' ? f.driver_id : undefined,
+          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
+        }),
       })
-      const origEntry = await res.json()
+      const origData = await res.json()
       if (!res.ok) {
-        setError(origEntry.code ? origEntry : { code: 'db_error', message: origEntry.error ?? 'Błąd zapisu', hint: '' })
+        setError(origData.code ? origData : { code: 'db_error', message: origData.error ?? 'Błąd zapisu', hint: '' })
         setSaving(false); return
       }
 
-      // 2. Opcjonalnie zapisz wpis powrotny
+      // 2. Jeśli checkbox zaznaczony — zapisz wpis powrotny
       if (createReturn) {
         const returnPayload = buildReturnEntry({
           vehicle_id:           f.vehicle_id,
           trip_date:            f.trip_date,
-          driver_id:            f.driver_type === 'internal'  ? f.driver_id            : undefined,
-          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
+          driver_id:            f.driver_type === 'internal' ? f.driver_id : null,
+          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : null,
           route_from:           f.route_from,
           route_to:             f.route_to,
+          odometer_before:      obNum,
           odometer_after:       oaNum,
-          kilometers:           oaNum - obNum,
+          created_by:           currentUserId ?? '',
         })
         const retRes = await fetch('/api/trips', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -157,7 +158,8 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
       <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl ${
         saveMsg.includes('nie udało') ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'
       }`}>&#x2713;</div>
-      <h2 className="text-lg font-semibold text-slate-800">{saveMsg}</h2>
+      <h2 className="text-lg font-semibold text-slate-800">{saveMsg.includes('nie udało') ? 'Zapisano z ostrzeżeniem' : 'Zapisano!'}</h2>
+      <p className="text-sm text-slate-500 text-center max-w-sm">{saveMsg}</p>
       <p className="text-sm text-slate-400">Przekierowuję…</p>
     </div>
   )
@@ -220,9 +222,7 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         <div>
           <label className="form-label">Km (obliczone)</label>
           <div className={`form-input text-center font-bold ${
-            km === null ? 'bg-slate-50 text-slate-400' : km > 0
-              ? 'bg-green-50 text-green-700 border-green-300'
-              : 'bg-red-50 text-red-600 border-red-300'
+            km === null ? 'bg-slate-50 text-slate-400' : km > 0 ? 'bg-green-50 text-green-700 border-green-300' : 'bg-red-50 text-red-600 border-red-300'
           }`}>
             {km === null ? '-' : km > 0 ? `${km.toLocaleString('pl-PL')} km` : 'Błąd licznika!'}
           </div>
@@ -245,8 +245,7 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         {f.driver_type === 'internal' ? (
           <div>
             <label className="form-label">Kierowca <span className="text-red-500">*</span></label>
-            <select className="form-input" value={f.driver_id}
-              onChange={e => setF(p => ({ ...p, driver_id: e.target.value }))}>
+            <select className="form-input" value={f.driver_id} onChange={e => setF(p => ({ ...p, driver_id: e.target.value }))}>
               <option value="">- wybierz -</option>
               {sortedProfiles.map(p => (
                 <option key={p.id} value={p.id}>
@@ -259,23 +258,16 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         ) : (
           <div>
             <label htmlFor="driver_name_external" className="form-label">Imię i nazwisko (zewnętrzny) <span className="text-red-500">*</span></label>
-            <input id="driver_name_external" type="text"
-              className={`form-input ${errs.driver_name_external ? 'form-input-error' : ''}`}
-              value={f.driver_name_external}
-              onChange={e => setF(p => ({ ...p, driver_name_external: e.target.value }))}
+            <input id="driver_name_external" type="text" className={`form-input ${errs.driver_name_external ? 'form-input-error' : ''}`}
+              value={f.driver_name_external} onChange={e => setF(p => ({ ...p, driver_name_external: e.target.value }))}
               placeholder="Pełne imię i nazwisko" />
             {errs.driver_name_external && <p className="form-error">{errs.driver_name_external}</p>}
           </div>
         )}
       </div>
-      {f.driver_type === 'external' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800">
-          ⚠ Wpis kierowcy zewnętrznego wymaga potwierdzenia przez spółkę (art. 86a ust. 7 pkt 2 lit. b ustawy o VAT).
-        </div>
-      )}
 
       {/* Checkbox powrotu */}
-      <label className="flex items-center gap-3 cursor-pointer select-none p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
+      <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer select-none">
         <input
           type="checkbox"
           checked={createReturn}
@@ -284,12 +276,20 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         />
         <div>
           <span className="text-sm font-medium text-slate-800">Utwórz wpis powrotny</span>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Automatycznie doda wpis „Powrót do siedziby firmy" z trasą odwrotną i tymi samymi km.
-          </p>
+          {createReturn && km && km > 0 && (
+            <p className="text-xs text-slate-500 mt-0.5">
+              Zostanie dodany wpis: {f.route_to} → {f.route_from}, {km} km,
+              licznik {oaNum.toLocaleString('pl-PL')} → {(oaNum + km).toLocaleString('pl-PL')}
+            </p>
+          )}
         </div>
       </label>
 
+      {f.driver_type === 'external' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800">
+          ⚠ Wpis kierowcy zewnętrznego wymaga potwierdzenia przez spółkę (art. 86a ust. 7 pkt 2 lit. b ustawy o VAT).
+        </div>
+      )}
       <ApiErrorMessage error={error} />
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
@@ -312,11 +312,6 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
     purpose: '', loaned_to_type: 'external' as 'internal' | 'external',
     loaned_to_user_id: '', loaned_to_name: '', odometer_at_issue: '', notes: '',
   })
-
-  const sortedProfiles = [
-    ...profiles.filter(p => p.id === currentUserId),
-    ...profiles.filter(p => p.id !== currentUserId),
-  ]
 
   useEffect(() => {
     if (!f.vehicle_id) return
@@ -366,7 +361,7 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
 
   if (saved) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
-      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">✓</div>
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">&#x2713;</div>
       <h2 className="text-lg font-semibold text-slate-800">Udostępnienie zapisane</h2>
       <p className="text-sm text-slate-400">Przekierowuję…</p>
     </div>
@@ -425,11 +420,7 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
             <select className={`form-input ${errs.loaned_to_user_id ? 'form-input-error' : ''}`}
               value={f.loaned_to_user_id} onChange={e => setF(p => ({ ...p, loaned_to_user_id: e.target.value }))}>
               <option value="">- wybierz pracownika -</option>
-              {sortedProfiles.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.id === currentUserId ? `${p.full_name} (ja)` : p.full_name}
-                </option>
-              ))}
+              {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
             </select>
             {errs.loaned_to_user_id && <p className="form-error">{errs.loaned_to_user_id}</p>}
           </div>
