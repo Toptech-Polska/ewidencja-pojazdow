@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
   if (!profile || !['administrator', 'kierowca'].includes(profile.role))
     return NextResponse.json({ error: 'Brak uprawnien' }, { status: 403 })
 
+  // Validate simulation config
   const simConfig = profile.simulation_config as SimulationConfig | null
   const locations = simConfig?.locations ?? []
   if (locations.length < 2) {
@@ -31,8 +32,9 @@ export async function POST(req: NextRequest) {
   if (!parsed.success)
     return NextResponse.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 422 })
 
-  const { vehicle_id, startDate, endDate, tripsPerWeek } = parsed.data
+  const { vehicle_id, startDate, endDate, currentOdometer } = parsed.data
 
+  // Fetch vehicle + last odometer
   const { data: vehicle } = await supabase
     .schema('vat_km').from('vehicles')
     .select('id, odometer_start')
@@ -45,10 +47,26 @@ export async function POST(req: NextRequest) {
     .order('entry_number', { ascending: false }).limit(1).single()
 
   const startOdometer = lastEntry?.odometer_after ?? vehicle.odometer_start
-  const drafts = generateTrips({ vehicleId: vehicle_id, startOdometer, startDate, endDate, tripsPerWeek, locations })
-  if (drafts.length === 0) return NextResponse.json({ trips: [], startOdometer })
+  const targetKm = currentOdometer - startOdometer
 
-  const pairs = drafts.map(t => ({ from: t._from_address, to: t._to_address }))
+  // Validate: currentOdometer must be greater than last recorded odometer
+  if (targetKm <= 0) {
+    return NextResponse.json({
+      code: 'odometer_too_low',
+      message: `Podany stan licznika musi byc wiekszy niz ostatni wpis w ewidencji (${startOdometer.toLocaleString('pl-PL')} km).`,
+      hint: '',
+      startOdometer,
+    }, { status: 422 })
+  }
+
+  // Fetch all distances between location pairs in one batch
+  const pairs: { from: string; to: string }[] = []
+  for (let i = 0; i < locations.length; i++) {
+    for (let j = 0; j < locations.length; j++) {
+      if (i !== j) pairs.push({ from: locations[i].address, to: locations[j].address })
+    }
+  }
+
   let distances: Map<string, number>
   try {
     distances = await getDistances(pairs)
@@ -56,13 +74,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e.message ?? 'Blad Maps API' }, { status: 500 })
   }
 
-  let odo = startOdometer
-  const trips = drafts.map(t => {
-    const km = distances.get(distanceKey(t._from_address, t._to_address)) ?? 20
-    const trip = { vehicle_id: t.vehicle_id, trip_date: t.trip_date, purpose: t.purpose, route_from: t.route_from, route_to: t.route_to, odometer_before: odo, odometer_after: odo + km }
-    odo += km
-    return trip
-  })
+  const drafts = generateTrips({ vehicleId: vehicle_id, startOdometer, targetKm, startDate, endDate, locations }, distances)
+  if (drafts.length === 0)
+    return NextResponse.json({ error: 'Nie udalo sie wygenerowac wpisow. Sprawdz lokalizacje w profilu.' }, { status: 400 })
 
-  return NextResponse.json({ trips, startOdometer })
+  // Strip internal fields before returning
+  const trips = drafts.map(({ _from_address, _to_address, ...t }) => t)
+
+  return NextResponse.json({ trips, startOdometer, targetKm })
 }

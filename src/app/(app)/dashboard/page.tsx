@@ -1,8 +1,6 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Topbar } from '@/components/layout/Topbar'
-import { formatDistanceToNow } from 'date-fns'
-import { pl } from 'date-fns/locale'
 import type { Vehicle, TripEntry, Vat26ComplianceRow } from '@/types/database'
 
 function Badge({ type, children }: { type: 'ok'|'warn'|'danger'|'info'|'gray', children: React.ReactNode }) {
@@ -19,10 +17,66 @@ function KpiCard({ label, value, sub, color }: { label: string; value: number | 
   )
 }
 
+// Pełnoekranowy onboarding dla użytkowników po pierwszym logowaniu Google,
+// którzy nie mają jeszcze nadanej roli przez admina.
+function PendingRoleScreen({ fullName, isInactive }: { fullName: string; isInactive: boolean }) {
+  return (
+    <div className="flex flex-col h-full">
+      <Topbar title="Witamy w ewidencji pojazdów" />
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 max-w-lg w-full p-8 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 mx-auto flex items-center justify-center text-amber-600 text-xl">
+            ⏳
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            {isInactive ? 'Konto wyłączone' : 'Oczekujesz na nadanie roli'}
+          </h2>
+          {isInactive ? (
+            <p className="text-sm text-slate-600">
+              Cześć {fullName}! Twoje konto zostało wyłączone przez administratora.
+              Skontaktuj się z administratorem, aby przywrócić dostęp.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">
+              Cześć {fullName}! Twoje konto zostało utworzone, ale administrator musi
+              jeszcze nadać Ci rolę w aplikacji. Po jej nadaniu zobaczysz panel
+              ewidencji pojazdów. Sprawdź ponownie za chwilę lub skontaktuj się
+              z administratorem.
+            </p>
+          )}
+          <div className="text-xs text-slate-400 pt-2">
+            Status zostanie odświeżony po przeładowaniu strony.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  // ── Fetch all data in parallel ────────────────────────────
+  // Sprawdź status onboardingu (omija RLS przez SECURITY DEFINER w bazie).
+  // Jeśli profil nie istnieje (np. trigger nie zadziałał) lub role_assigned=false
+  // lub is_active=false — pokaż onboarding screen zamiast dashboardu.
+  const { data: statusRows } = await supabase
+    .schema('vat_km')
+    .rpc('my_onboarding_status')
+
+  const status = statusRows?.[0]
+
+  if (!status?.has_profile || !status.role_assigned || status.is_active === false) {
+    return (
+      <PendingRoleScreen
+        fullName={status?.full_name ?? user?.email ?? 'użytkowniku'}
+        isInactive={status?.is_active === false}
+      />
+    )
+  }
+
+  // ── Standardowy dashboard ───────────────────────────────────────────────────
+
   const [
     { data: vehicles },
     { data: trips },

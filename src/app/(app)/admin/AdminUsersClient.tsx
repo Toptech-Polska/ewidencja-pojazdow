@@ -17,12 +17,16 @@ const ROLE_BADGE: Record<UserRole, string> = {
   kontrola:      'badge-info',
 }
 
+// ── Inline quick-edit (full_name + role + active) ─────────────────────────────
+
 interface EditState {
   id: string
   full_name: string
   role: UserRole
   is_active: boolean
 }
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
   const router = useRouter()
@@ -31,7 +35,12 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
   const [error,   setError]   = useState<string | null>(null)
 
   function startEdit(p: Profile) {
-    setEditing({ id: p.id, full_name: p.full_name, role: p.role, is_active: p.is_active })
+    setEditing({
+      id: p.id,
+      full_name: p.full_name,
+      role: p.role,
+      is_active: p.is_active,
+    })
     setError(null)
   }
 
@@ -44,8 +53,10 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           full_name: editing.full_name,
-          role:      editing.role,
+          role: editing.role,
           is_active: editing.is_active,
+          // role_assigned ustawiany automatycznie po stronie API
+          // przy pierwszym nadaniu roli pendingowemu profilowi.
         }),
       })
       const data = await res.json()
@@ -60,9 +71,19 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
 
   return (
     <>
+      <div className="px-0 pb-3">
+        <p className="text-xs text-slate-500">
+          Lista zalogowanych użytkowników. Konto powstaje automatycznie przy pierwszym
+          logowaniu Google. Aby udzielić komuś nowemu dostępu, dodaj jego email do
+          whitelist powyżej — następnie po jego pierwszym zalogowaniu pojawi się tutaj
+          jako „Oczekuje na rolę".
+        </p>
+      </div>
+
       {error && (
-        <div className="mx-0 mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>
       )}
+
       <table className="data-table">
         <thead>
           <tr>
@@ -73,20 +94,19 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
           {profiles.map(p => {
             const initials = p.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
             const isEditing = editing?.id === p.id
+            const isPending = !p.role_assigned
 
             return (
-              <tr key={p.id}>
+              <tr key={p.id} className={isPending ? 'bg-amber-50/40' : ''}>
                 <td>
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold flex-shrink-0">
                       {initials}
                     </div>
                     {isEditing ? (
-                      <input
-                        className="form-input py-1 text-sm"
-                        value={editing.full_name}
+                      <input className="form-input py-1 text-sm" value={editing.full_name}
                         onChange={e => setEditing(prev => prev ? { ...prev, full_name: e.target.value } : prev)}
-                      />
+                        placeholder="Imię i nazwisko" />
                     ) : (
                       <span className="font-semibold text-slate-800">{p.full_name}</span>
                     )}
@@ -95,15 +115,14 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td className="text-slate-500 text-xs">{p.email}</td>
                 <td>
                   {isEditing ? (
-                    <select
-                      className="form-input py-1 text-sm"
-                      value={editing.role}
-                      onChange={e => setEditing(prev => prev ? { ...prev, role: e.target.value as UserRole } : prev)}
-                    >
+                    <select className="form-input py-1 text-sm" value={editing.role}
+                      onChange={e => setEditing(prev => prev ? { ...prev, role: e.target.value as UserRole } : prev)}>
                       {(Object.keys(ROLE_LABELS) as UserRole[]).map(r => (
                         <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                       ))}
                     </select>
+                  ) : isPending ? (
+                    <span className="badge badge-warn">Oczekuje na rolę</span>
                   ) : (
                     <span className={`badge ${ROLE_BADGE[p.role]}`}>{ROLE_LABELS[p.role]}</span>
                   )}
@@ -111,11 +130,8 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td>
                   {isEditing ? (
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editing.is_active}
-                        onChange={e => setEditing(prev => prev ? { ...prev, is_active: e.target.checked } : prev)}
-                      />
+                      <input type="checkbox" checked={editing.is_active}
+                        onChange={e => setEditing(prev => prev ? { ...prev, is_active: e.target.checked } : prev)} />
                       <span className="text-xs">{editing.is_active ? 'Aktywny' : 'Nieaktywny'}</span>
                     </label>
                   ) : (
@@ -127,27 +143,32 @@ export function AdminUsersClient({ profiles }: { profiles: Profile[] }) {
                 <td>
                   {isEditing ? (
                     <div className="flex gap-2">
-                      <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="text-xs text-white bg-blue-700 hover:bg-blue-800 font-medium px-2 py-1 rounded"
-                      >
-                        {saving ? '…' : 'Zapisz'}
+                      <button onClick={handleSave} disabled={saving}
+                        className="text-xs text-white bg-blue-700 hover:bg-blue-800 font-medium px-2 py-1 rounded">
+                        {saving ? '...' : (isPending ? 'Nadaj rolę' : 'Zapisz')}
                       </button>
-                      <button
-                        onClick={() => { setEditing(null); setError(null) }}
-                        className="text-xs text-slate-500 hover:text-slate-700 font-medium"
-                      >
+                      <button onClick={() => { setEditing(null); setError(null) }}
+                        className="text-xs text-slate-500 hover:text-slate-700 font-medium">
                         Anuluj
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => startEdit(p)}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      Edytuj
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => startEdit(p)}
+                        className={`text-xs font-medium whitespace-nowrap ${
+                          isPending
+                            ? 'text-amber-700 hover:text-amber-900'
+                            : 'text-blue-600 hover:text-blue-800'
+                        }`}>
+                        {isPending ? 'Nadaj rolę' : 'Edytuj'}
+                      </button>
+                      {!isPending && (
+                        <a href={`/admin/users/${p.id}`}
+                          className="text-xs text-slate-500 hover:text-slate-800 font-medium whitespace-nowrap">
+                          Pełny profil &rarr;
+                        </a>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>

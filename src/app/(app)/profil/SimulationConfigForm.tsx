@@ -17,11 +17,16 @@ const TYPE_COLORS: Record<SimulationLocationType, string> = {
   inne:     'bg-slate-100 text-slate-600',
 }
 
+// Default purpose suggestions per location type
+const DEFAULT_PURPOSES: Record<SimulationLocationType, string[]> = {
+  siedziba: ['Powrot do siedziby', 'Wyjazd sluzbowy', 'Spotkanie w biurze'],
+  dom:      ['Powrot do domu', 'Wyjazd z domu'],
+  klient:   ['Spotkanie z klientem', 'Prezentacja oferty', 'Odbiór dokumentów', 'Serwis u klienta'],
+  inne:     ['Wyjazd sluzbowy', 'Dostawa materialow'],
+}
+
 interface Prediction {
-  place_id: string
-  description: string
-  main_text: string
-  secondary_text: string
+  place_id: string; description: string; main_text: string; secondary_text: string
 }
 
 function AddressInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -43,12 +48,6 @@ function AddressInput({ value, onChange }: { value: string; onChange: (v: string
     }, 300)
   }
 
-  function select(description: string) {
-    onChange(description)
-    setSuggestions([])
-    setOpen(false)
-  }
-
   return (
     <div className="relative">
       <input
@@ -60,11 +59,9 @@ function AddressInput({ value, onChange }: { value: string; onChange: (v: string
       {open && suggestions.length > 0 && (
         <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
           {suggestions.map(s => (
-            <button
-              key={s.place_id} type="button"
-              onClick={() => select(s.description)}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-slate-100 last:border-0"
-            >
+            <button key={s.place_id} type="button"
+              onClick={() => { onChange(s.description); setSuggestions([]); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-slate-100 last:border-0">
               <p className="font-medium text-slate-800 truncate">{s.main_text}</p>
               <p className="text-xs text-slate-500 truncate">{s.secondary_text}</p>
             </button>
@@ -75,24 +72,154 @@ function AddressInput({ value, onChange }: { value: string; onChange: (v: string
   )
 }
 
+// ── LocationCard ──────────────────────────────────────────────────────────────
+
+function LocationCard({
+  loc,
+  onRemove,
+  onUpdate,
+}: {
+  loc: SimulationLocation
+  onRemove: () => void
+  onUpdate: (updated: SimulationLocation) => void
+}) {
+  const [newPurpose, setNewPurpose] = useState('')
+  const [showInput, setShowInput]  = useState(false)
+
+  function addPurpose() {
+    const trimmed = newPurpose.trim()
+    if (!trimmed || loc.purposes.includes(trimmed)) return
+    onUpdate({ ...loc, purposes: [...loc.purposes, trimmed] })
+    setNewPurpose('')
+    setShowInput(false)
+  }
+
+  function removePurpose(p: string) {
+    onUpdate({ ...loc, purposes: loc.purposes.filter(x => x !== p) })
+  }
+
+  function addSuggested(p: string) {
+    if (loc.purposes.includes(p)) return
+    onUpdate({ ...loc, purposes: [...loc.purposes, p] })
+  }
+
+  const suggestions = DEFAULT_PURPOSES[loc.type].filter(p => !loc.purposes.includes(p))
+
+  return (
+    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${TYPE_COLORS[loc.type]}`}>
+              {TYPE_LABELS[loc.type]}
+            </span>
+            <span className="text-sm font-medium text-slate-800 truncate">{loc.label}</span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5 truncate">{loc.address}</p>
+        </div>
+        <button onClick={onRemove} className="text-slate-400 hover:text-red-500 text-lg leading-none flex-shrink-0">
+          &times;
+        </button>
+      </div>
+
+      {/* Purposes section */}
+      <div className="pl-0.5">
+        <p className="text-xs font-medium text-slate-500 mb-1.5">Cele wizyt:</p>
+
+        {/* Existing purposes as tags */}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {loc.purposes.length === 0 && (
+            <span className="text-xs text-slate-400 italic">Brak — generator uzyje domyslnych celow</span>
+          )}
+          {loc.purposes.map(p => (
+            <span key={p} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2 py-0.5 text-xs text-slate-700">
+              {p}
+              <button onClick={() => removePurpose(p)} className="text-slate-400 hover:text-red-500 leading-none">&times;</button>
+            </span>
+          ))}
+        </div>
+
+        {/* Suggested purposes (quick-add) */}
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {suggestions.map(p => (
+              <button key={p} onClick={() => addSuggested(p)}
+                className="text-xs px-2 py-0.5 border border-dashed border-slate-300 rounded-full text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors">
+                + {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Add custom purpose */}
+        {showInput ? (
+          <div className="flex gap-2 items-center">
+            <input
+              type="text" className="form-input text-xs py-1 flex-1"
+              value={newPurpose}
+              onChange={e => setNewPurpose(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addPurpose()}
+              placeholder="Wpisz cel wizyty..."
+              autoFocus
+            />
+            <button onClick={addPurpose} disabled={!newPurpose.trim()} className="btn-primary text-xs py-1 px-2">Dodaj</button>
+            <button onClick={() => { setShowInput(false); setNewPurpose('') }} className="btn-outline text-xs py-1 px-2">Anuluj</button>
+          </div>
+        ) : (
+          <button onClick={() => setShowInput(true)}
+            className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+            + Dodaj wlasny cel
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main form ─────────────────────────────────────────────────────────────────
+
 interface Props {
-  profileId: string
+  profileId:     string
   initialConfig: SimulationConfig | null
 }
 
 export function SimulationConfigForm({ profileId, initialConfig }: Props) {
-  const [locations, setLocations] = useState<SimulationLocation[]>(initialConfig?.locations ?? [])
-  const [showForm, setShowForm]   = useState(false)
-  const [saving,   setSaving]     = useState(false)
-  const [saved,    setSaved]      = useState(false)
-  const [saveErr,  setSaveErr]    = useState<string | null>(null)
-  const [form, setForm] = useState({ label: '', address: '', type: 'inne' as SimulationLocationType })
+  const [locations, setLocations] = useState<SimulationLocation[]>(
+    // Migrate existing locations without purposes field
+    (initialConfig?.locations ?? []).map(l => ({ purposes: [], ...l }))
+  )
+  const [showForm, setShowForm] = useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [saveErr,  setSaveErr]  = useState<string | null>(null)
+  const [form, setForm] = useState({
+    label: '', address: '', type: 'inne' as SimulationLocationType,
+    newPurpose: '',
+    purposes: [] as string[],
+  })
+
+  function addFormPurpose() {
+    const trimmed = form.newPurpose.trim()
+    if (!trimmed || form.purposes.includes(trimmed)) return
+    setForm(p => ({ ...p, purposes: [...p.purposes, trimmed], newPurpose: '' }))
+  }
 
   function addLocation() {
     if (!form.label.trim() || !form.address.trim()) return
-    setLocations(prev => [...prev, { id: crypto.randomUUID(), label: form.label.trim(), address: form.address.trim(), type: form.type }])
-    setForm({ label: '', address: '', type: 'inne' })
+    setLocations(prev => [...prev, {
+      id: crypto.randomUUID(),
+      label:    form.label.trim(),
+      address:  form.address.trim(),
+      type:     form.type,
+      purposes: form.purposes,
+    }])
+    setForm({ label: '', address: '', type: 'inne', newPurpose: '', purposes: [] })
     setShowForm(false)
+  }
+
+  function updateLocation(id: string, updated: SimulationLocation) {
+    setLocations(prev => prev.map(l => l.id === id ? updated : l))
   }
 
   async function handleSave() {
@@ -103,11 +230,9 @@ export function SimulationConfigForm({ profileId, initialConfig }: Props) {
       body: JSON.stringify({ simulation_config: { locations } }),
     })
     if (!res.ok) {
-      const d = await res.json()
-      setSaveErr(d.error ?? 'Blad zapisu')
+      const d = await res.json(); setSaveErr(d.error ?? 'Blad zapisu')
     } else {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      setSaved(true); setTimeout(() => setSaved(false), 3000)
     }
     setSaving(false)
   }
@@ -120,28 +245,21 @@ export function SimulationConfigForm({ profileId, initialConfig }: Props) {
         </div>
       )}
 
+      {/* Location cards */}
       {locations.length > 0 && (
         <div className="space-y-2">
           {locations.map(loc => (
-            <div key={loc.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${TYPE_COLORS[loc.type]}`}>
-                    {TYPE_LABELS[loc.type]}
-                  </span>
-                  <span className="text-sm font-medium text-slate-800 truncate">{loc.label}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5 truncate">{loc.address}</p>
-              </div>
-              <button
-                onClick={() => setLocations(prev => prev.filter(l => l.id !== loc.id))}
-                className="text-slate-400 hover:text-red-500 text-lg leading-none flex-shrink-0"
-              >&times;</button>
-            </div>
+            <LocationCard
+              key={loc.id}
+              loc={loc}
+              onRemove={() => setLocations(prev => prev.filter(l => l.id !== loc.id))}
+              onUpdate={updated => updateLocation(loc.id, updated)}
+            />
           ))}
         </div>
       )}
 
+      {/* Add new location form */}
       {showForm ? (
         <div className="border border-blue-200 rounded-lg p-4 space-y-3 bg-blue-50/30">
           <p className="text-xs font-semibold text-slate-600">Nowa lokalizacja</p>
@@ -165,8 +283,45 @@ export function SimulationConfigForm({ profileId, initialConfig }: Props) {
             <AddressInput value={form.address} onChange={v => setForm(p => ({ ...p, address: v }))} />
             <p className="form-hint">Wybierz adres z listy podpowiedzi lub wpisz recznie.</p>
           </div>
+
+          {/* Purposes in add form */}
+          <div>
+            <label className="form-label">Cele wizyt <span className="text-slate-400 font-normal">(opcjonalnie)</span></label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {form.purposes.length === 0 && (
+                <span className="text-xs text-slate-400 italic">Brak — generator uzyje domyslnych celow</span>
+              )}
+              {form.purposes.map(p => (
+                <span key={p} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2 py-0.5 text-xs text-slate-700">
+                  {p}
+                  <button onClick={() => setForm(prev => ({ ...prev, purposes: prev.purposes.filter(x => x !== p) }))}
+                    className="text-slate-400 hover:text-red-500">&times;</button>
+                </span>
+              ))}
+            </div>
+            {/* Quick suggestions for selected type */}
+            <div className="flex flex-wrap gap-1 mb-2">
+              {DEFAULT_PURPOSES[form.type].filter(p => !form.purposes.includes(p)).map(p => (
+                <button key={p} type="button"
+                  onClick={() => setForm(prev => ({ ...prev, purposes: [...prev.purposes, p] }))}
+                  className="text-xs px-2 py-0.5 border border-dashed border-slate-300 rounded-full text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors">
+                  + {p}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input type="text" className="form-input text-xs py-1 flex-1"
+                value={form.newPurpose}
+                onChange={e => setForm(p => ({ ...p, newPurpose: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && addFormPurpose()}
+                placeholder="Wlasny cel wizyty..." />
+              <button onClick={addFormPurpose} disabled={!form.newPurpose.trim()}
+                className="btn-outline text-xs py-1 px-2">Dodaj</button>
+            </div>
+          </div>
+
           <div className="flex gap-2">
-            <button onClick={() => { setShowForm(false); setForm({ label: '', address: '', type: 'inne' }) }}
+            <button onClick={() => { setShowForm(false); setForm({ label: '', address: '', type: 'inne', newPurpose: '', purposes: [] }) }}
               className="btn-outline text-xs py-1.5 px-3">Anuluj</button>
             <button onClick={addLocation} disabled={!form.label.trim() || !form.address.trim()}
               className="btn-primary text-xs py-1.5 px-3">Dodaj lokalizacje</button>

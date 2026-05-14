@@ -1,27 +1,10 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { fetchWhitelist, isCurrentUserGlobalAdmin } from '@/lib/auth_hub'
 import { Topbar } from '@/components/layout/Topbar'
 import { AdminUsersClient } from './AdminUsersClient'
+import { WhitelistManager } from './WhitelistManager'
 import type { UserRole, Profile } from '@/types/database'
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  administrator: 'Administrator',
-  ksiegowosc:    'Księgowość',
-  kierowca:      'Kierowca',
-  kontrola:      'Kontrola',
-}
-const ROLE_BADGE: Record<UserRole, string> = {
-  administrator: 'badge-info',
-  ksiegowosc:    'badge-warn',
-  kierowca:      'badge-gray',
-  kontrola:      'badge-info',
-}
-const ROLE_PERMS: Record<UserRole, string> = {
-  administrator: 'Pełny dostęp do systemu',
-  ksiegowosc:    'Raporty, VAT-26, zatwierdzanie, eksport',
-  kierowca:      'Własne wpisy ewidencji',
-  kontrola:      'Odczyt, eksport, historia zmian',
-}
 
 const PERMS_MATRIX = [
   { action: 'Dodaj / edytuj własne wpisy',              administrator: 'tak', ksiegowosc: 'tak', kierowca: 'własne', kontrola: 'nie' },
@@ -45,36 +28,58 @@ function PermBadge({ val }: { val: string }) {
 export default async function AdminPage() {
   const supabase = await createClient()
 
-  // Guard: tylko administrator może wejść na tę stronę
+  // Guard: tylko administrator (vat_km) z role_assigned=true może wejść
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: currentProfile } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('role')
+    .select('role, role_assigned')
     .eq('id', user.id)
     .single()
 
-  if (currentProfile?.role !== 'administrator') {
+  if (currentProfile?.role !== 'administrator' || currentProfile?.role_assigned !== true) {
     redirect('/dashboard')
   }
 
+  // Profile zalogowanych userów (włącznie z pendingami — tymi co się zalogowali,
+  // ale jeszcze nie mają nadanej roli)
   const { data: profiles } = await supabase
     .schema('vat_km')
     .from('profiles')
-    .select('id, full_name, email, role, is_active, created_at')
+    .select('id, full_name, email, role, is_active, role_assigned, created_at, company_id, simulation_config')
+    .order('role_assigned', { ascending: true })  // pendingi na górze
     .order('full_name')
+
+  // auth_hub jest niedostępny przez REST (schema not exposed) — fetch przez
+  // helper, który używa admin klienta i sprawdza uprawnienia przez RPC.
+  // Równoległe pobranie obu wartości.
+  const [whitelist, isGlobalAdmin] = await Promise.all([
+    fetchWhitelist(),
+    isCurrentUserGlobalAdmin(),
+  ])
 
   return (
     <div className="flex flex-col h-full">
       <Topbar title="Administracja — użytkownicy" />
 
       <div className="main-scroll p-5 space-y-4">
+        {/* Whitelist (Auth Hub) */}
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Whitelist Auth Hub</span>
+          </div>
+          <WhitelistManager
+            whitelist={whitelist}
+            isGlobalAdmin={isGlobalAdmin}
+          />
+        </div>
+
         {/* Users list */}
         <div className="card">
           <div className="card-head">
-            <span className="card-title">Użytkownicy systemu</span>
+            <span className="card-title">Użytkownicy aplikacji</span>
           </div>
           <AdminUsersClient profiles={(profiles ?? []) as Profile[]} />
         </div>

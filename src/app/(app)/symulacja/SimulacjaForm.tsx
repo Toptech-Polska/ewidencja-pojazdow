@@ -66,23 +66,44 @@ function EditModal({ trip, index, onSave, onClose }: { trip: TripWithId; index: 
   )
 }
 
-function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, error }: { trips: TripWithId[]; vehicleLabel: string; onChange: (t: TripWithId[]) => void; onSave: () => void; onBack: () => void; saving: boolean; error: DbError | null }) {
+function PreviewStep({ trips, vehicleLabel, targetKm, onChange, onSave, onBack, saving, error }: {
+  trips: TripWithId[]; vehicleLabel: string; targetKm: number
+  onChange: (t: TripWithId[]) => void; onSave: () => void; onBack: () => void
+  saving: boolean; error: DbError | null
+}) {
   const [editIdx, setEditIdx] = useState<number | null>(null)
   const totalKm = trips.reduce((s, t) => s + t.odometer_after - t.odometer_before, 0)
+  const diff = totalKm - targetKm
+
   function handleEdit(i: number, u: any) {
     let r = [...trips]
     r[i] = { ...r[i], trip_date: u.trip_date, purpose: u.purpose, route_from: u.route_from, route_to: u.route_to }
     onChange(updateKm(r, i, u.km))
   }
+
   return (
     <div className="p-5 space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800">
         &#x2139; Ponizsze wpisy trafia do ewidencji. Kazdy wpis bedzie mozna edytowac rowniez po zapisaniu.
       </div>
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600"><strong>{trips.length}</strong> wpisow dla <strong>{vehicleLabel}</strong> &middot; lacznie <strong>{totalKm.toLocaleString('pl-PL')} km</strong></p>
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-slate-600">
+          <strong>{trips.length}</strong> wpisow dla <strong>{vehicleLabel}</strong>
+        </p>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-slate-500">Suma: <strong className="text-slate-800">{totalKm.toLocaleString('pl-PL')} km</strong></span>
+          <span className="text-slate-400">/</span>
+          <span className="text-slate-500">Cel: <strong className="text-slate-800">{targetKm.toLocaleString('pl-PL')} km</strong></span>
+          {diff !== 0 && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${Math.abs(diff) <= 5 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {diff > 0 ? '+' : ''}{diff} km
+            </span>
+          )}
+        </div>
         {trips.length === 0 && <p className="text-sm text-amber-600 font-medium">&#x26A0; Wszystkie wpisy zostaly usuniete.</p>}
       </div>
+
       {trips.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full text-xs">
@@ -116,6 +137,7 @@ function PreviewStep({ trips, vehicleLabel, onChange, onSave, onBack, saving, er
           </table>
         </div>
       )}
+
       <ApiErrorMessage error={error} />
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={onBack} className="btn-outline">&larr; Wróc do formularza</button>
@@ -134,22 +156,24 @@ export function SimulacjaForm({ vehicles }: Props) {
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
   const [step,    setStep]    = useState<Step>('form')
   const [trips,   setTrips]   = useState<TripWithId[]>([])
+  const [targetKm, setTargetKm] = useState(0)
   const [result,  setResult]  = useState<{ count: number; firstEntryNumber: number | null } | null>(null)
   const [error,   setError]   = useState<DbError | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving,  setSaving]  = useState(false)
-  const [f, setF] = useState({ vehicle_id: vehicles[0]?.id ?? '', startDate: monthAgo, endDate: today, tripsPerWeek: 5 })
+  const [f, setF] = useState({ vehicle_id: vehicles[0]?.id ?? '', startDate: monthAgo, endDate: today, currentOdometer: '' })
   const [errs, setErrs] = useState<Record<string, string>>({})
   const vLabel = vehicles.find(v => v.id === f.vehicle_id)
   const vehicleLabel = vLabel ? `${vLabel.plate_number} - ${vLabel.make} ${vLabel.model}` : ''
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!f.vehicle_id)                e.vehicle_id  = 'Wybierz pojazd'
-    if (!f.startDate)                 e.startDate   = 'Podaj date poczatkowa'
-    if (!f.endDate)                   e.endDate     = 'Podaj date koncowa'
-    if (f.endDate <= f.startDate)     e.endDate     = 'Data koncowa musi byc pozniejsza'
-    if (f.tripsPerWeek < 1 || f.tripsPerWeek > 14) e.tripsPerWeek = 'Zakres 1-14'
+    if (!f.vehicle_id)            e.vehicle_id       = 'Wybierz pojazd'
+    if (!f.startDate)             e.startDate        = 'Podaj date poczatkowa'
+    if (!f.endDate)               e.endDate          = 'Podaj date koncowa'
+    if (f.endDate <= f.startDate) e.endDate          = 'Data koncowa musi byc pozniejsza'
+    if (!f.currentOdometer || parseInt(f.currentOdometer, 10) <= 0)
+      e.currentOdometer = 'Podaj aktualny stan licznika'
     setErrs(e); return Object.keys(e).length === 0
   }
 
@@ -157,10 +181,20 @@ export function SimulacjaForm({ vehicles }: Props) {
     if (!validate()) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch('/api/simulation/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
+      const payload = { vehicle_id: f.vehicle_id, startDate: f.startDate, endDate: f.endDate, currentOdometer: parseInt(f.currentOdometer, 10) }
+      const res = await fetch('/api/simulation/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const data = await res.json()
-      if (!res.ok) { setError(data.code ? data : { code: 'db_error', message: data.error ?? 'Blad generowania', hint: '' }); setLoading(false); return }
+      if (!res.ok) {
+        // odometer_too_low is a special validation error — show as form error
+        if (data.code === 'odometer_too_low') {
+          setErrs(prev => ({ ...prev, currentOdometer: data.message }))
+        } else {
+          setError(data.code ? data : { code: 'db_error', message: data.error ?? 'Blad generowania', hint: '' })
+        }
+        setLoading(false); return
+      }
       setTrips((data.trips as SimulatedTrip[]).map((t, i) => ({ ...t, _id: i })))
+      setTargetKm(data.targetKm)
       setStep('preview')
     } catch { setError({ code: 'db_error', message: 'Blad polaczenia z serwerem', hint: '' }) }
     setLoading(false)
@@ -192,7 +226,7 @@ export function SimulacjaForm({ vehicles }: Props) {
   )
 
   if (step === 'preview') return (
-    <PreviewStep trips={trips} vehicleLabel={vehicleLabel} onChange={setTrips} onSave={handleSave} onBack={() => setStep('form')} saving={saving} error={error} />
+    <PreviewStep trips={trips} vehicleLabel={vehicleLabel} targetKm={targetKm} onChange={setTrips} onSave={handleSave} onBack={() => setStep('form')} saving={saving} error={error} />
   )
 
   return (
@@ -205,6 +239,22 @@ export function SimulacjaForm({ vehicles }: Props) {
         </select>
         {errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>}
       </div>
+
+      <div>
+        <label className="form-label">Aktualny stan licznika (km) <span className="text-red-500">*</span></label>
+        <input
+          type="number" min={1} step={1}
+          className={`form-input ${errs.currentOdometer ? 'form-input-error' : ''}`}
+          value={f.currentOdometer}
+          onChange={e => setF(p => ({ ...p, currentOdometer: e.target.value }))}
+          placeholder="np. 124500"
+        />
+        {errs.currentOdometer
+          ? <p className="form-error">{errs.currentOdometer}</p>
+          : <p className="form-hint">Wpisz aktualny odczyt z licznika pojazdu. Generator dobierze km do wypelnienia.</p>
+        }
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Data od <span className="text-red-500">*</span></label>
@@ -217,17 +267,13 @@ export function SimulacjaForm({ vehicles }: Props) {
           {errs.endDate && <p className="form-error">{errs.endDate}</p>}
         </div>
       </div>
-      <div>
-        <label className="form-label">Wpisow na tydzien <span className="ml-1 font-bold text-blue-700">{f.tripsPerWeek}</span></label>
-        <input type="range" min={1} max={14} step={1} className="w-full accent-blue-700" value={f.tripsPerWeek} onChange={e => setF(p => ({ ...p, tripsPerWeek: Number(e.target.value) }))} />
-        {errs.tripsPerWeek && <p className="form-error">{errs.tripsPerWeek}</p>}
-        <p className="form-hint">1 = rzadkie wyjazdy, 14 = 2x dziennie</p>
-      </div>
+
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800">
-        &#x2139; Trasy i odleglosci sa obliczane na podstawie lokalizacji z Twojego profilu przez Google Maps.
-        Wygenerowane wpisy pojawia sie do podgladu &mdash; mozesz je edytowac lub usunac przed zapisaniem.
+        &#x2139; Generator dobierze trasy z Twoich lokalizacji tak, aby suma kilometrow rowna sie roznicynpomiedzy ostatnim wpisem a podanym stanem licznika. Odleglosci oblicza Google Maps.
       </div>
+
       <ApiErrorMessage error={error} />
+
       <div className="flex justify-between items-center pt-2 border-t border-slate-200 bg-slate-50 -mx-5 -mb-5 px-5 py-3.5 rounded-b-xl">
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
         <button onClick={handlePreview} disabled={loading || !f.vehicle_id} className="btn-primary">
