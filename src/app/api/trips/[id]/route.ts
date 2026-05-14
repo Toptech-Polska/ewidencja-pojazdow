@@ -1,81 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
+import { interpretDbError } from '@/lib/errors/db-errors'
 
-// Pola edytowalne przez kierowcę (własne wpisy) oraz admina/księgowość.
-// Pola licznikowe (odometer_before, odometer_after, vehicle_id) są celowo
-// wykluczone — ich zmiana naruszałaby integralność ewidencji.
-const EditSchema = z.object({
-  trip_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format daty: YYYY-MM-DD').optional(),
-  purpose:     z.string().min(3, 'Cel wyjazdu musi mieć co najmniej 3 znaki').max(500).optional(),
-  route_from:  z.string().min(2).max(300).optional(),
-  route_to:    z.string().min(2).max(300).optional(),
-  notes:       z.string().max(1000).nullable().optional(),
-}).refine(data => Object.keys(data).length > 0, {
-  message: 'Brak pól do zaktualizowania',
-})
+const TripPatchSchema = z.object({
+  trip_date: z.string().date().optional(),
+  purpose: z.string().min(5, 'Min. 5 znaków').max(500).optional(),
+  route_from: z.string().min(2).max(200).optional(),
+  route_to: z.string().min(2).max(200).optional(),
+  odometer_before: z.number().int().nonnegative().optional(),
+  odometer_after: z.number().int().positive().optional(),
+}).refine(
+  (d) => {
+    if (d.odometer_before !== undefined && d.odometer_after !== undefined) {
+      return d.odometer_after > d.odometer_before
+    }
+    return true
+  },
+  { message: 'Licznik po powrocie musi być większy niż przed wyjazdem', path: ['odometer_after'] }
+)
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .schema('vat_km').from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['administrator', 'ksiegowosc'].includes(profile.role))
+    return NextResponse.json({ error: 'Brak uprawnień do edycji wpisów' }, { status: 403 })
 
   const body = await req.json()
-  const parsed = EditSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Validation error', details: parsed.error.flatten() },
-      { status: 422 },
-    )
-  }
+  const parsed = TripPatchSchema.safeParse(body)
+  if (!parsed.success)
+    return NextResponse.json({ error: 'Błąd walidacji', details: parsed.error.flatten() }, { status: 422 })
 
-  // Sprawdź czy wpis istnieje i czy user ma do niego dostęp (tr_select to gwarantuje)
-  const { data: existing, error: fetchError } = await supabase
+  // Build update payload with ONLY provided fields
+  const d = parsed.data
+  const updatePayload: Record<string, unknown> = {}
+  if (d.trip_date !== undefined)       updatePayload.trip_date       = d.trip_date
+  if (d.purpose !== undefined)         updatePayload.purpose         = d.purpose
+  if (d.route_from !== undefined)      updatePayload.route_from      = d.route_from
+  if (d.route_to !== undefined)        updatePayload.route_to        = d.route_to
+  if (d.odometer_before !== undefined) updatePayload.odometer_before = d.odometer_before
+  if (d.odometer_after !== undefined)  updatePayload.odometer_after  = d.odometer_after
+
+  if (Object.keys(updatePayload).length === 0)
+    return NextResponse.json({ error: 'Brak pól do aktualizacji' }, { status: 422 })
+
+  const { data, error } = await supabase
     .schema('vat_km')
     .from('trip_entries')
-    .select('id, created_by, confirmed_by_company, requires_confirmation')
+    .update(updatePayload)
     .eq('id', params.id)
+    .select('*, vehicles(plate_number, make, model), profiles(full_name)')
     .single()
 
-  if (fetchError || !existing) {
-    return NextResponse.json({ error: 'Wpis nie istnieje lub brak dostępu' }, { status: 404 })
-  }
-
-  // Nie pozwalamy edytować wpisów zatwierdzonych przez spółkę —
-  // po zatwierdzeniu wpis jest "zamknięty" dla celów art. 86a.
-  if (existing.confirmed_by_company) {
-    return NextResponse.json(
-      { error: 'Nie można edytować zatwierdzonego wpisu. Skontaktuj się z administratorem.' },
-      { status: 403 },
-    )
-  }
-
-  // UPDATE — RLS (tr_update) dodatkowo weryfikuje uprawnienia po stronie bazy:
-  // - administrator/księgowość: każdy wpis firmy
-  // - kierowca: tylko własne (created_by = auth.uid())
-  const { data, error: updateError } = await supabase
-    .schema('vat_km')
-    .from('trip_entries')
-    .update(parsed.data)
-    .eq('id', params.id)
-    .select('id, trip_date, purpose, route_from, route_to, notes, updated_at')
-    .single()
-
-  if (updateError) {
-    // Błąd RLS (42501) = kierowca próbuje edytować cudzy wpis
-    if ((updateError as any).code === '42501') {
-      return NextResponse.json(
-        { error: 'Możesz edytować tylko własne wpisy' },
-        { status: 403 },
-      )
-    }
-    return NextResponse.json({ error: updateError.message }, { status: 400 })
-  }
-
+  if (error) return NextResponse.json(interpretDbError(error.message), { status: 400 })
   return NextResponse.json(data)
 }
