@@ -22,10 +22,12 @@ export default async function RaportyPage() {
     supabase.schema('vat_km').from('companies').select('name, nip').single(),
   ])
 
+  // UWAGA: trip_entries ma 3 FK do profiles (driver_id, created_by, confirmed_by).
+  // Bez explicit aliasu PostgREST rzuca "more than one relationship" — używamy !driver_id.
   const { data: trips } = await supabase
     .schema('vat_km')
     .from('trip_entries')
-    .select('*, vehicles(plate_number, make, model)')
+    .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
     .order('trip_date', { ascending: false })
 
   return (
