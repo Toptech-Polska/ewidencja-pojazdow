@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Topbar } from '@/components/layout/Topbar'
 import { getLastOdometer } from '@/lib/trips/odometer'
 import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
 import type { DbError } from '@/lib/errors/db-errors'
-import type { Vehicle, Profile } from '@/types/database'
+import type { Vehicle, Profile, SimulationLocation } from '@/types/database'
 
 const TODAY = new Date().toISOString().slice(0, 10)
 
-async function loadData() {
+async function loadData(userId: string | null) {
   const supabase = createClient()
   const [{ data: { user } }, { data: veh }, { data: prof }] = await Promise.all([
     supabase.auth.getUser(),
@@ -19,10 +19,101 @@ async function loadData() {
     supabase.schema('vat_km').from('profiles').select('id, full_name, role').eq('is_active', true)
       .in('role', ['administrator', 'ksiegowosc', 'kierowca']).order('full_name'),
   ])
-  return { currentUserId: user?.id ?? null, vehicles: veh ?? [], profiles: prof ?? [] }
+
+  // Pobierz lokalizacje z profilu zalogowanego usera
+  let userLocations: SimulationLocation[] = []
+  if (user?.id) {
+    const { data: profileData } = await supabase
+      .schema('vat_km')
+      .from('profiles')
+      .select('simulation_config')
+      .eq('id', user.id)
+      .single()
+    userLocations = profileData?.simulation_config?.locations ?? []
+  }
+
+  return {
+    currentUserId: user?.id ?? null,
+    vehicles: veh ?? [],
+    profiles: prof ?? [],
+    userLocations,
+  }
 }
 
-// ─── pure helper ────────────────────────────────────────────────────────────
+// ── LocationPicker ─────────────────────────────────────────────
+const TYPE_COLORS: Record<string, string> = {
+  siedziba: 'bg-blue-50 text-blue-700 border-blue-200',
+  dom:      'bg-green-50 text-green-700 border-green-200',
+  klient:   'bg-purple-50 text-purple-700 border-purple-200',
+  inne:     'bg-slate-100 text-slate-600 border-slate-200',
+}
+
+function LocationPicker({
+  locations,
+  onSelect,
+}: {
+  locations: SimulationLocation[]
+  onSelect: (address: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  if (locations.length === 0) return null
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        title="Wybierz z moich lokalizacji"
+        className={`flex items-center gap-1 px-2.5 py-2 border rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+          open
+            ? 'bg-blue-700 text-white border-blue-700'
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
+        }`}
+      >
+        <span>&#x1F4CD;</span> Moje lokalizacje
+      </button>
+
+      {open && (
+        <div className="absolute z-30 top-full mt-1 right-0 w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Wybierz lokalizację</p>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {locations.map(loc => (
+              <button
+                key={loc.id}
+                type="button"
+                onClick={() => { onSelect(loc.address); setOpen(false) }}
+                className="w-full text-left px-3 py-2.5 hover:bg-blue-50 border-b border-slate-50 last:border-0 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${
+                    TYPE_COLORS[loc.type] ?? TYPE_COLORS.inne
+                  }`}>
+                    {loc.label}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">{loc.address}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── buildReturnEntry ──────────────────────────────────────────
 function buildReturnEntry(orig: {
   vehicle_id: string; trip_date: string; driver_id?: string | null
   driver_name_external?: string | null; route_from: string; route_to: string
@@ -42,19 +133,27 @@ function buildReturnEntry(orig: {
   }
 }
 
-function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; profiles: Profile[]; currentUserId: string | null }) {
+// ── TripForm ───────────────────────────────────────────────────
+function TripForm({
+  vehicles, profiles, currentUserId, userLocations,
+}: {
+  vehicles: Vehicle[]
+  profiles: Profile[]
+  currentUserId: string | null
+  userLocations: SimulationLocation[]
+}) {
   const router = useRouter()
-  const [saving, setSaving]       = useState(false)
-  const [saved,  setSaved]        = useState(false)
-  const [saveMsg, setSaveMsg]     = useState('')
-  const [error,  setError]        = useState<DbError | null>(null)
-  const [errs,   setErrs]         = useState<Record<string, string>>({})
+  const [saving, setSaving]             = useState(false)
+  const [saved,  setSaved]              = useState(false)
+  const [saveMsg, setSaveMsg]           = useState('')
+  const [error,  setError]              = useState<DbError | null>(null)
+  const [errs,   setErrs]               = useState<Record<string, string>>({})
   const [createReturn, setCreateReturn] = useState(false)
 
-  // Zalogowany user na górze listy
   const currentProfile = profiles.find(p => p.id === currentUserId)
-  const otherProfiles  = profiles.filter(p => p.id !== currentUserId)
-  const sortedProfiles = currentProfile ? [currentProfile, ...otherProfiles] : profiles
+  const sortedProfiles = currentProfile
+    ? [currentProfile, ...profiles.filter(p => p.id !== currentUserId)]
+    : profiles
 
   const [f, setF] = useState({
     vehicle_id: vehicles[0]?.id ?? '', trip_date: TODAY,
@@ -99,7 +198,6 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
     if (!validate()) return
     setSaving(true); setError(null)
     try {
-      // 1. Zapisz oryginalny wpis
       const res = await fetch('/api/trips', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -116,7 +214,6 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         setSaving(false); return
       }
 
-      // 2. Jeśli checkbox zaznaczony — zapisz wpis powrotny
       if (createReturn) {
         const returnPayload = buildReturnEntry({
           vehicle_id:           f.vehicle_id,
@@ -144,7 +241,6 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
       } else {
         setSaveMsg('Wpis zapisany pomyślnie.')
       }
-
       setSaved(true)
       setTimeout(() => router.push('/wpisy'), 1500)
     } catch {
@@ -184,6 +280,7 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
           {errs.trip_date && <p className="form-error">{errs.trip_date}</p>}
         </div>
       </div>
+
       <div>
         <label htmlFor="purpose" className="form-label">Cel wyjazdu <span className="text-red-500">*</span></label>
         <input id="purpose" type="text" className={`form-input ${errs.purpose ? 'form-input-error' : ''}`} value={f.purpose}
@@ -192,20 +289,47 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         {errs.purpose ? <p className="form-error">{errs.purpose}</p>
           : <p className="form-hint">Cel musi potwierdzać służbowy charakter wyjazdu (art. 86a ustawy o VAT)</p>}
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="route_from" className="form-label">Skąd <span className="text-red-500">*</span></label>
-          <input id="route_from" type="text" className={`form-input ${errs.route_from ? 'form-input-error' : ''}`} value={f.route_from}
-            onChange={e => setF(p => ({ ...p, route_from: e.target.value }))} placeholder="np. Bydgoszcz, ul. Długa 10" />
-          {errs.route_from && <p className="form-error">{errs.route_from}</p>}
+
+      {/* Skąd */}
+      <div>
+        <label htmlFor="route_from" className="form-label">Skąd <span className="text-red-500">*</span></label>
+        <div className="flex gap-2">
+          <input
+            id="route_from"
+            type="text"
+            className={`form-input flex-1 ${errs.route_from ? 'form-input-error' : ''}`}
+            value={f.route_from}
+            onChange={e => setF(p => ({ ...p, route_from: e.target.value }))}
+            placeholder="np. Bydgoszcz, ul. Długa 10"
+          />
+          <LocationPicker
+            locations={userLocations}
+            onSelect={addr => setF(p => ({ ...p, route_from: addr }))}
+          />
         </div>
-        <div>
-          <label htmlFor="route_to" className="form-label">Dokąd <span className="text-red-500">*</span></label>
-          <input id="route_to" type="text" className={`form-input ${errs.route_to ? 'form-input-error' : ''}`} value={f.route_to}
-            onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} placeholder="np. Warszawa, Al. Jana Pawła II 22" />
-          {errs.route_to && <p className="form-error">{errs.route_to}</p>}
-        </div>
+        {errs.route_from && <p className="form-error">{errs.route_from}</p>}
       </div>
+
+      {/* Dokąd */}
+      <div>
+        <label htmlFor="route_to" className="form-label">Dokąd <span className="text-red-500">*</span></label>
+        <div className="flex gap-2">
+          <input
+            id="route_to"
+            type="text"
+            className={`form-input flex-1 ${errs.route_to ? 'form-input-error' : ''}`}
+            value={f.route_to}
+            onChange={e => setF(p => ({ ...p, route_to: e.target.value }))}
+            placeholder="np. Warszawa, Al. Jana Pawła II 22"
+          />
+          <LocationPicker
+            locations={userLocations}
+            onSelect={addr => setF(p => ({ ...p, route_to: addr }))}
+          />
+        </div>
+        {errs.route_to && <p className="form-error">{errs.route_to}</p>}
+      </div>
+
       <div className="grid grid-cols-3 gap-4">
         <div>
           <label htmlFor="odometer_before" className="form-label">Licznik przed wyjazdem <span className="text-red-500">*</span></label>
@@ -228,6 +352,7 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
           </div>
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Typ kierowcy</label>
@@ -266,14 +391,9 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         )}
       </div>
 
-      {/* Checkbox powrotu */}
       <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={createReturn}
-          onChange={e => setCreateReturn(e.target.checked)}
-          className="w-4 h-4 rounded accent-blue-700"
-        />
+        <input type="checkbox" checked={createReturn} onChange={e => setCreateReturn(e.target.checked)}
+          className="w-4 h-4 rounded accent-blue-700" />
         <div>
           <span className="text-sm font-medium text-slate-800">Utwórz wpis powrotny</span>
           {createReturn && km && km > 0 && (
@@ -301,6 +421,7 @@ function TripForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
   )
 }
 
+// ── LoanForm ───────────────────────────────────────────────────
 function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; profiles: Profile[]; currentUserId: string | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
@@ -451,18 +572,21 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
   )
 }
 
+// ── Page ──────────────────────────────────────────────────────
 export default function NowyWpisPage() {
   const [tab,           setTab]           = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
   const [vehicles,      setVehicles]      = useState<Vehicle[]>([])
   const [profiles,      setProfiles]      = useState<Profile[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [userLocations, setUserLocations] = useState<SimulationLocation[]>([])
   const [loading,       setLoading]       = useState(true)
 
   useEffect(() => {
-    loadData().then(({ currentUserId, vehicles, profiles }) => {
+    loadData(null).then(({ currentUserId, vehicles, profiles, userLocations }) => {
       setCurrentUserId(currentUserId)
       setVehicles(vehicles)
       setProfiles(profiles)
+      setUserLocations(userLocations)
       setLoading(false)
     })
   }, [])
@@ -485,7 +609,12 @@ export default function NowyWpisPage() {
           {loading ? (
             <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Ładowanie danych…</div>
           ) : tab === 'wyjazd' ? (
-            <TripForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} />
+            <TripForm
+              vehicles={vehicles}
+              profiles={profiles}
+              currentUserId={currentUserId}
+              userLocations={userLocations}
+            />
           ) : (
             <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} />
           )}
