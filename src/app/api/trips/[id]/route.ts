@@ -51,12 +51,14 @@ export async function PATCH(
   if (Object.keys(updatePayload).length === 0)
     return NextResponse.json({ error: 'Brak pól do aktualizacji' }, { status: 422 })
 
+  // UWAGA: trip_entries ma 3 FK do profiles (driver_id, created_by, confirmed_by).
+  // Bez explicit aliasu PostgREST rzuca "more than one relationship" — używamy !driver_id.
   const { data, error } = await supabase
     .schema('vat_km')
     .from('trip_entries')
     .update(updatePayload)
     .eq('id', params.id)
-    .select('*, vehicles(plate_number, make, model), profiles(full_name)')
+    .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
     .single()
 
   if (error) return NextResponse.json(interpretDbError(error.message), { status: 400 })
