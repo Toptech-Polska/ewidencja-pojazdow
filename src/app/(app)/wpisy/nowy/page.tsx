@@ -8,6 +8,7 @@ import { getLastOdometer } from '@/lib/trips/odometer'
 import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
 import type { DbError } from '@/lib/errors/db-errors'
 import type { Vehicle, Profile } from '@/types/database'
+import { buildReturnEntry } from '@/lib/wpisy/buildReturnEntry'
 
 async function loadVehiclesAndProfiles() {
   const supabase = createClient()
@@ -23,7 +24,8 @@ async function loadVehiclesAndProfiles() {
 function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profile[] }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
+  const [savedCount, setSavedCount] = useState<0 | 1 | 2>(0)
+  const [createReturn, setCreateReturn] = useState(false)
   const [error,  setError]  = useState<DbError | null>(null)
   const [errs,   setErrs]   = useState<Record<string, string>>({})
   const [f, setF] = useState({
@@ -82,17 +84,49 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
         setError(d.code ? d : { code: 'db_error', message: d.error ?? 'Blad zapisu', hint: '' })
         setSaving(false); return
       }
-      setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
+      if (createReturn) {
+        const returnEntry = buildReturnEntry({
+          vehicle_id: f.vehicle_id,
+          trip_date: f.trip_date,
+          purpose: f.purpose,
+          route_from: f.route_from,
+          route_to: f.route_to,
+          odometer_before: obNum,
+          odometer_after: oaNum,
+          driver_id: f.driver_type === 'internal' ? f.driver_id : undefined,
+          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
+        })
+        const returnRes = await fetch('/api/trips', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(returnEntry),
+        })
+        if (!returnRes.ok) {
+          const rd = await returnRes.json()
+          // Oryginal zapisany, powrot nie — pokaz ostrzezenie
+          const returnErrMsg = rd.hint || rd.message || rd.error || 'Blad zapisu'
+          setError({ code: 'db_error', message: `Zapisano wyjazd, ale nie udalo sie utworzyc powrotu: ${returnErrMsg}. Dodaj powrot recznie.`, hint: '' })
+          setSavedCount(1)
+          setSaving(false)
+          setTimeout(() => router.push('/wpisy'), 3000)
+          return
+        }
+        setSavedCount(2)
+      } else {
+        setSavedCount(1)
+      }
+      setTimeout(() => router.push('/wpisy'), 1500)
     } catch {
       setError({ code: 'db_error', message: 'Blad polaczenia z serwerem', hint: '' })
       setSaving(false)
     }
   }
 
-  if (saved) return (
+  if (savedCount > 0) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
       <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-3xl">&#x2713;</div>
-      <h2 className="text-lg font-semibold text-slate-800">Wpis zapisany pomyslnie</h2>
+      <h2 className="text-lg font-semibold text-slate-800">
+        {savedCount === 2 ? 'Zapisano 2 wpisy (wyjazd i powrót)' : 'Wpis zapisany pomyslnie'}
+      </h2>
       <p className="text-sm text-slate-400">Przekierowuje&hellip;</p>
     </div>
   )
@@ -136,6 +170,18 @@ function TripForm({ vehicles, profiles }: { vehicles: Vehicle[]; profiles: Profi
             onChange={e => setF(p => ({ ...p, route_to: e.target.value }))} placeholder="np. Warszawa, Al. Jana Pawla II 22" />
           {errs.route_to && <p className="form-error">{errs.route_to}</p>}
         </div>
+      </div>
+      <div className="flex items-center gap-2.5 py-1">
+        <input
+          type="checkbox"
+          id="create_return"
+          checked={createReturn}
+          onChange={e => setCreateReturn(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+        />
+        <label htmlFor="create_return" className="text-sm text-slate-700 select-none cursor-pointer">
+          Utwórz wpis powrotny <span className="text-slate-400 text-xs">(ten sam dystans, adresy odwrócone)</span>
+        </label>
       </div>
       <div className="grid grid-cols-3 gap-4">
         <div>
