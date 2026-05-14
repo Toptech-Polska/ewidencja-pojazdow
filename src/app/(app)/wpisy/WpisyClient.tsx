@@ -27,7 +27,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   const [selVid, setSelVid]         = useState(initialVehicle)
   const [confirming, setConfirming] = useState<string | null>(null)
 
-  // Inline edit state
   const [editingId, setEditingId]   = useState<string | null>(null)
   const [editDraft, setEditDraft]   = useState<EditDraft>({ trip_date: '', purpose: '', route_from: '', route_to: '' })
   const [editError, setEditError]   = useState<string | null>(null)
@@ -122,7 +121,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   return (
     <div className="main-scroll p-5">
       <div className="card">
-        {/* Toolbar */}
         <div className="flex items-center gap-3 p-3 border-b border-slate-200 flex-wrap">
           <select value={selVid} onChange={e => setSelVid(e.target.value)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white" style={{ maxWidth: 260 }}>
@@ -146,7 +144,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
           <Link href="/wpisy/nowy" className="btn-primary text-xs py-1.5 px-3">+ Nowy wpis</Link>
         </div>
 
-        {/* Odometer banner */}
         {selV && (
           <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex gap-6 text-xs flex-wrap">
             <span>Licznik startowy: <strong className="text-slate-800">{selV.odometer_start.toLocaleString('pl-PL')} km</strong></span>
@@ -162,12 +159,10 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
           </div>
         )}
 
-        {/* Inline edit error */}
         {editError && (
           <div className="mx-4 mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{editError}</div>
         )}
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="data-table min-w-max">
             <thead>
@@ -187,51 +182,34 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
               {filtered.map(t => {
                 const veh          = t.vehicles as any
                 const needsConfirm = t.requires_confirmation && !t.confirmed_by_company
+                const driverName   = t.driver_name_external || (t.driver as any)?.full_name || '—'
 
-                // ── Inline edit row ──────────────────────────────────────────
                 if (t.id === editingId) {
                   return (
                     <tr key={t.id} className="bg-blue-50/30">
                       <td className="font-bold tabular-nums">{t.entry_number}</td>
                       <td>
-                        <input
-                          type="date"
-                          value={editDraft.trip_date}
-                          max={TODAY}
+                        <input type="date" value={editDraft.trip_date} max={TODAY}
                           onChange={e => setEditDraft(p => ({ ...p, trip_date: e.target.value }))}
-                          className="border border-slate-300 rounded px-2 py-1 text-xs w-32"
-                        />
+                          className="border border-slate-300 rounded px-2 py-1 text-xs w-32" />
                       </td>
                       <td>
-                        <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">
-                          {veh?.plate_number}
-                        </span>
+                        <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">{veh?.plate_number}</span>
                       </td>
                       <td>
-                        <input
-                          type="text"
-                          value={editDraft.purpose}
+                        <input type="text" value={editDraft.purpose}
                           onChange={e => setEditDraft(p => ({ ...p, purpose: e.target.value }))}
-                          className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                        />
+                          className="border border-slate-300 rounded px-2 py-1 text-xs w-48" />
                       </td>
                       <td>
                         <div className="flex gap-1">
-                          <input
-                            type="text"
-                            value={editDraft.route_from}
+                          <input type="text" value={editDraft.route_from} placeholder="Skąd"
                             onChange={e => setEditDraft(p => ({ ...p, route_from: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-28"
-                            placeholder="Skąd"
-                          />
+                            className="border border-slate-300 rounded px-2 py-1 text-xs w-36" />
                           <span className="text-slate-400">→</span>
-                          <input
-                            type="text"
-                            value={editDraft.route_to}
+                          <input type="text" value={editDraft.route_to} placeholder="Dokąd"
                             onChange={e => setEditDraft(p => ({ ...p, route_to: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-28"
-                            placeholder="Dokąd"
-                          />
+                            className="border border-slate-300 rounded px-2 py-1 text-xs w-36" />
                         </div>
                       </td>
                       <td className="tabular-nums text-xs text-slate-400">
@@ -240,27 +218,18 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                       <td className="text-xs text-slate-400 tabular-nums">
                         {t.odometer_before.toLocaleString('pl-PL')} → {t.odometer_after.toLocaleString('pl-PL')}
                       </td>
-                      <td>
-                        {t.driver_name_external || (t.driver as any)?.full_name || '—'}
-                      </td>
-                      <td>
-                        <span className="badge badge-info">Edycja</span>
-                      </td>
+                      <td>{driverName}</td>
+                      <td><span className="badge badge-info">Edycja</span></td>
                       <td>
                         <div className="flex flex-col gap-1">
                           {editError && <p className="text-xs text-red-600 max-w-xs">{editError}</p>}
                           <div className="flex gap-1">
-                            <button
-                              onClick={saveEdit}
-                              disabled={editSaving}
-                              className="px-2 py-1 bg-blue-700 text-white text-xs rounded font-medium disabled:opacity-50"
-                            >
+                            <button onClick={saveEdit} disabled={editSaving}
+                              className="px-2 py-1 bg-blue-700 text-white text-xs rounded font-medium disabled:opacity-50">
                               {editSaving ? '…' : 'Zapisz'}
                             </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="px-2 py-1 bg-white text-slate-600 border border-slate-200 text-xs rounded"
-                            >
+                            <button onClick={cancelEdit}
+                              className="px-2 py-1 bg-white text-slate-600 border border-slate-200 text-xs rounded">
                               Anuluj
                             </button>
                           </div>
@@ -270,7 +239,6 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                   )
                 }
 
-                // ── Normal row ───────────────────────────────────────────────
                 const km      = t.kilometers ?? (t.odometer_after - t.odometer_before)
                 const purpose = t.purpose.length > 40 ? t.purpose.slice(0, 38) + '…' : t.purpose
                 return (
@@ -285,8 +253,8 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td className="max-w-xs">
                       <span className="text-xs">{purpose}</span>
                     </td>
-                    <td className="whitespace-nowrap">
-                      <span className="text-xs text-slate-500">{t.route_from.split(',')[0]} → {t.route_to.split(',')[0]}</span>
+                    <td className="text-xs text-slate-500">
+                      {t.route_from} → {t.route_to}
                     </td>
                     <td className="font-bold whitespace-nowrap tabular-nums text-xs">{km} km</td>
                     <td className="text-xs text-slate-400 whitespace-nowrap tabular-nums">
@@ -305,18 +273,13 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td>
                       <div className="flex gap-1 flex-wrap">
                         {needsConfirm && (
-                          <button
-                            onClick={() => confirmTrip(t.id)}
-                            disabled={confirming === t.id}
-                            className="px-2 py-1 bg-green-50 text-green-700 border border-green-200 rounded text-xs font-medium hover:bg-green-100 whitespace-nowrap disabled:opacity-50"
-                          >
+                          <button onClick={() => confirmTrip(t.id)} disabled={confirming === t.id}
+                            className="px-2 py-1 bg-green-50 text-green-700 border border-green-200 rounded text-xs font-medium hover:bg-green-100 whitespace-nowrap disabled:opacity-50">
                             {confirming === t.id ? '…' : '✓ Zatwierdź'}
                           </button>
                         )}
-                        <button
-                          onClick={() => startEdit(t)}
-                          className="px-2 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded text-xs font-medium hover:bg-slate-100 whitespace-nowrap"
-                        >
+                        <button onClick={() => startEdit(t)}
+                          className="px-2 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded text-xs font-medium hover:bg-slate-100 whitespace-nowrap">
                           Edytuj
                         </button>
                       </div>
