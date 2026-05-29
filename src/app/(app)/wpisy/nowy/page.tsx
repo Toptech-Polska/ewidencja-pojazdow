@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Topbar } from '@/components/layout/Topbar'
 import { getLastOdometer } from '@/lib/trips/odometer'
@@ -10,6 +10,14 @@ import type { DbError } from '@/lib/errors/db-errors'
 import type { Vehicle, Profile, SimulationLocation } from '@/types/database'
 
 const TODAY = new Date().toISOString().slice(0, 10)
+
+type InsertAfterData = {
+  id: string
+  entry_number: number
+  trip_date: string
+  odometer_after: number
+  vehicle_id: string
+}
 
 async function loadData(userId: string | null) {
   const supabase = createClient()
@@ -20,7 +28,6 @@ async function loadData(userId: string | null) {
       .in('role', ['administrator', 'ksiegowosc', 'kierowca']).order('full_name'),
   ])
 
-  // Pobierz lokalizacje z profilu zalogowanego usera
   let userLocations: SimulationLocation[] = []
   if (user?.id) {
     const { data: profileData } = await supabase
@@ -136,11 +143,14 @@ function buildReturnEntry(orig: {
 // ── TripForm ───────────────────────────────────────────────────
 function TripForm({
   vehicles, profiles, currentUserId, userLocations,
+  insertAfterEntry, nextEntry,
 }: {
   vehicles: Vehicle[]
   profiles: Profile[]
   currentUserId: string | null
   userLocations: SimulationLocation[]
+  insertAfterEntry: InsertAfterData | null
+  nextEntry: { trip_date: string } | null
 }) {
   const router = useRouter()
   const [saving, setSaving]             = useState(false)
@@ -150,20 +160,28 @@ function TripForm({
   const [errs,   setErrs]               = useState<Record<string, string>>({})
   const [createReturn, setCreateReturn] = useState(false)
 
+  const isInsertMode = !!insertAfterEntry
+
   const currentProfile = profiles.find(p => p.id === currentUserId)
   const sortedProfiles = currentProfile
     ? [currentProfile, ...profiles.filter(p => p.id !== currentUserId)]
     : profiles
 
   const [f, setF] = useState({
-    vehicle_id: vehicles[0]?.id ?? '', trip_date: TODAY,
-    purpose: '', route_from: '', route_to: '', odometer_before: '', odometer_after: '',
-    driver_type: 'internal' as 'internal' | 'external',
-    driver_id: currentUserId ?? (sortedProfiles[0]?.id ?? ''),
+    vehicle_id:           insertAfterEntry?.vehicle_id ?? vehicles[0]?.id ?? '',
+    trip_date:            TODAY,
+    purpose:              '',
+    route_from:           '',
+    route_to:             '',
+    odometer_before:      insertAfterEntry ? String(insertAfterEntry.odometer_after) : '',
+    odometer_after:       '',
+    driver_type:          'internal' as 'internal' | 'external',
+    driver_id:            currentUserId ?? (sortedProfiles[0]?.id ?? ''),
     driver_name_external: '',
   })
 
   useEffect(() => {
+    if (isInsertMode) return // locked in insert mode — odometer_before comes from insertAfterEntry
     if (!f.vehicle_id) return
     const veh = vehicles.find(v => v.id === f.vehicle_id)
     if (!veh) return
@@ -177,10 +195,18 @@ function TripForm({
   const oaNum = f.odometer_after  ? Number(f.odometer_after)  : 0
   const km    = f.odometer_after  ? oaNum - obNum             : null
 
+  const dateMin = isInsertMode ? insertAfterEntry!.trip_date : undefined
+  const dateMax = isInsertMode ? (nextEntry?.trip_date ?? TODAY) : TODAY
+
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)        e.vehicle_id      = 'Wybierz pojazd'
-    if (f.trip_date > TODAY)  e.trip_date       = 'Data nie może być w przyszłości'
+    if (!isInsertMode && f.trip_date > TODAY)
+      e.trip_date = 'Data nie może być w przyszłości'
+    if (isInsertMode && f.trip_date < insertAfterEntry!.trip_date)
+      e.trip_date = `Data nie może być wcześniejsza niż ${insertAfterEntry!.trip_date}`
+    if (isInsertMode && nextEntry && f.trip_date > nextEntry.trip_date)
+      e.trip_date = `Data nie może być późniejsza niż ${nextEntry.trip_date}`
     if (f.purpose.length < 5) e.purpose         = 'Podaj cel wyjazdu (min. 5 znaków)'
     if (!f.route_from)        e.route_from      = 'Pole wymagane'
     if (!f.route_to)          e.route_to        = 'Pole wymagane'
@@ -198,14 +224,69 @@ function TripForm({
     if (!validate()) return
     setSaving(true); setError(null)
     try {
+      const driverFields = f.driver_type === 'internal'
+        ? { driver_id: f.driver_id, driver_name_external: undefined }
+        : { driver_id: undefined, driver_name_external: f.driver_name_external }
+
+      // ── insert mode: POST to /api/trips/insert ─────────────────
+      if (isInsertMode) {
+        const res = await fetch('/api/trips/insert', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vehicle_id:           f.vehicle_id,
+            after_entry_number:   insertAfterEntry!.entry_number,
+            trip_date:            f.trip_date,
+            purpose:              f.purpose,
+            route_from:           f.route_from,
+            route_to:             f.route_to,
+            kilometers:           km!,
+            ...driverFields,
+          }),
+        })
+        const origData = await res.json()
+        if (!res.ok) {
+          setError(origData.code ? origData : { code: 'db_error', message: origData.error ?? 'Błąd zapisu', hint: '' })
+          setSaving(false); return
+        }
+
+        if (createReturn) {
+          const retRes = await fetch('/api/trips/insert', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vehicle_id:           f.vehicle_id,
+              after_entry_number:   insertAfterEntry!.entry_number + 1,
+              trip_date:            f.trip_date,
+              purpose:              'Powrót do siedziby firmy',
+              route_from:           f.route_to,
+              route_to:             f.route_from,
+              kilometers:           km!,
+              ...driverFields,
+            }),
+          })
+          if (!retRes.ok) {
+            const retErr = await retRes.json()
+            setSaveMsg(`Zapisano wyjazd, ale nie udało się utworzyć powrotu: ${retErr.message ?? retErr.error ?? 'nieznany błąd'}. Dodaj powrót ręcznie.`)
+            setSaved(true)
+            setTimeout(() => router.push('/wpisy'), 4000)
+            return
+          }
+          setSaveMsg('Zapisano 2 wpisy (wyjazd i powrót).')
+        } else {
+          setSaveMsg('Wpis zapisany pomyślnie.')
+        }
+        setSaved(true)
+        setTimeout(() => router.push('/wpisy'), 1500)
+        return
+      }
+
+      // ── append mode: POST to /api/trips ────────────────────────
       const res = await fetch('/api/trips', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vehicle_id: f.vehicle_id, trip_date: f.trip_date, purpose: f.purpose,
           route_from: f.route_from, route_to: f.route_to,
           odometer_before: obNum, odometer_after: oaNum,
-          driver_id: f.driver_type === 'internal' ? f.driver_id : undefined,
-          driver_name_external: f.driver_type === 'external' ? f.driver_name_external : undefined,
+          ...driverFields,
         }),
       })
       const origData = await res.json()
@@ -265,17 +346,26 @@ function TripForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Pojazd <span className="text-red-500">*</span></label>
-          <select className={`form-input ${errs.vehicle_id ? 'form-input-error' : ''}`} value={f.vehicle_id}
-            onChange={e => setF(p => ({ ...p, vehicle_id: e.target.value, odometer_before: '', odometer_after: '' }))}>
+          <select
+            className={`form-input ${errs.vehicle_id ? 'form-input-error' : ''} ${isInsertMode ? 'opacity-75 cursor-not-allowed' : ''}`}
+            value={f.vehicle_id}
+            disabled={isInsertMode}
+            onChange={e => setF(p => ({ ...p, vehicle_id: e.target.value, odometer_before: '', odometer_after: '' }))}
+          >
             <option value="">- wybierz -</option>
             {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} - {v.make} {v.model}</option>)}
           </select>
-          {errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>}
+          {isInsertMode
+            ? <p className="form-hint">Pojazd zablokowany — wstawianie w środku ewidencji konkretnego pojazdu</p>
+            : errs.vehicle_id && <p className="form-error">{errs.vehicle_id}</p>
+          }
         </div>
         <div>
           <label htmlFor="trip_date" className="form-label">Data wyjazdu <span className="text-red-500">*</span></label>
           <input id="trip_date" type="date" className={`form-input ${errs.trip_date ? 'form-input-error' : ''}`}
-            value={f.trip_date} max={TODAY}
+            value={f.trip_date}
+            min={dateMin}
+            max={dateMax}
             onChange={e => setF(p => ({ ...p, trip_date: e.target.value }))} />
           {errs.trip_date && <p className="form-error">{errs.trip_date}</p>}
         </div>
@@ -333,8 +423,14 @@ function TripForm({
       <div className="grid grid-cols-3 gap-4">
         <div>
           <label htmlFor="odometer_before" className="form-label">Licznik przed wyjazdem <span className="text-red-500">*</span></label>
-          <input id="odometer_before" type="number" className={`form-input ${errs.odometer_before ? 'form-input-error' : ''}`}
-            value={f.odometer_before} onChange={e => setF(p => ({ ...p, odometer_before: e.target.value }))} />
+          <input
+            id="odometer_before"
+            type="number"
+            className={`form-input ${errs.odometer_before ? 'form-input-error' : ''} ${isInsertMode ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : ''}`}
+            value={f.odometer_before}
+            readOnly={isInsertMode}
+            onChange={e => !isInsertMode && setF(p => ({ ...p, odometer_before: e.target.value }))}
+          />
           {errs.odometer_before && <p className="form-error">{errs.odometer_before}</p>}
         </div>
         <div>
@@ -572,48 +668,82 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
   )
 }
 
-// ── Page ──────────────────────────────────────────────────────
-export default function NowyWpisPage() {
-  const [tab,           setTab]           = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
-  const [vehicles,      setVehicles]      = useState<Vehicle[]>([])
-  const [profiles,      setProfiles]      = useState<Profile[]>([])
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [userLocations, setUserLocations] = useState<SimulationLocation[]>([])
-  const [loading,       setLoading]       = useState(true)
+// ── Page inner (uses useSearchParams — must be inside Suspense) ─
+function NowyWpisPageInner() {
+  const searchParams = useSearchParams()
+  const insertAfter  = searchParams.get('insertAfter') // UUID or null
+
+  const [tab,             setTab]             = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
+  const [vehicles,        setVehicles]        = useState<Vehicle[]>([])
+  const [profiles,        setProfiles]        = useState<Profile[]>([])
+  const [currentUserId,   setCurrentUserId]   = useState<string | null>(null)
+  const [userLocations,   setUserLocations]   = useState<SimulationLocation[]>([])
+  const [insertAfterEntry, setInsertAfterEntry] = useState<InsertAfterData | null>(null)
+  const [nextEntry,        setNextEntry]       = useState<{ trip_date: string } | null>(null)
+  const [loading,         setLoading]         = useState(true)
 
   useEffect(() => {
-    loadData(null).then(({ currentUserId, vehicles, profiles, userLocations }) => {
+    loadData(null).then(async ({ currentUserId, vehicles, profiles, userLocations }) => {
       setCurrentUserId(currentUserId)
       setVehicles(vehicles)
       setProfiles(profiles)
       setUserLocations(userLocations)
+
+      if (insertAfter) {
+        const supabase = createClient()
+        const { data: prev } = await supabase
+          .schema('vat_km').from('trip_entries')
+          .select('id, entry_number, trip_date, odometer_after, vehicle_id')
+          .eq('id', insertAfter)
+          .single()
+        if (prev) {
+          setInsertAfterEntry(prev)
+          const { data: next } = await supabase
+            .schema('vat_km').from('trip_entries')
+            .select('trip_date')
+            .eq('vehicle_id', prev.vehicle_id)
+            .eq('entry_number', prev.entry_number + 1)
+            .maybeSingle()
+          setNextEntry(next ?? null)
+        }
+      }
+
       setLoading(false)
     })
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insertAfter])
+
+  const title = insertAfterEntry
+    ? `Wstaw wpis po nr ${insertAfterEntry.entry_number} z dnia ${insertAfterEntry.trip_date}`
+    : 'Nowy wpis ewidencji'
 
   return (
     <div className="flex flex-col h-full">
-      <Topbar title="Nowy wpis ewidencji" />
+      <Topbar title={title} />
       <div className="main-scroll p-5">
         <div className="card max-w-3xl mx-auto">
-          <div className="flex border-b border-slate-200">
-            {(['wyjazd', 'udostepnienie'] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  t === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}>
-                {t === 'wyjazd' ? 'Wyjazd własny' : 'Udostępnienie pojazdu'}
-              </button>
-            ))}
-          </div>
+          {!insertAfter && (
+            <div className="flex border-b border-slate-200">
+              {(['wyjazd', 'udostepnienie'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    t === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}>
+                  {t === 'wyjazd' ? 'Wyjazd własny' : 'Udostępnienie pojazdu'}
+                </button>
+              ))}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Ładowanie danych…</div>
-          ) : tab === 'wyjazd' ? (
+          ) : (insertAfter || tab === 'wyjazd') ? (
             <TripForm
               vehicles={vehicles}
               profiles={profiles}
               currentUserId={currentUserId}
               userLocations={userLocations}
+              insertAfterEntry={insertAfterEntry}
+              nextEntry={nextEntry}
             />
           ) : (
             <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} />
@@ -621,5 +751,19 @@ export default function NowyWpisPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Page export (Suspense required for useSearchParams in App Router) ─
+export default function NowyWpisPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col h-full">
+        <Topbar title="Nowy wpis ewidencji" />
+        <div className="flex items-center justify-center flex-1 text-slate-400 text-sm">Ładowanie…</div>
+      </div>
+    }>
+      <NowyWpisPageInner />
+    </Suspense>
   )
 }
