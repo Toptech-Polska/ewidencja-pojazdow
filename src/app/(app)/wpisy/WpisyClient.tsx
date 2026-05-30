@@ -234,7 +234,19 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
         )}
 
         <div className="overflow-x-auto">
-          <table className="data-table min-w-max">
+          <table className="data-table table-fixed">
+            <colgroup>
+              <col className="w-8" />
+              <col className="w-[82px]" />
+              <col className="w-[74px]" />
+              <col className="w-36" />
+              <col />
+              <col className="w-14" />
+              <col className="w-36" />
+              <col className="w-24" />
+              <col className="w-20" />
+              <col className="w-40" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Nr</th><th>Data</th><th>Pojazd</th>
@@ -269,35 +281,33 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                           min={prev?.trip_date}
                           max={next?.trip_date ?? TODAY}
                           onChange={e => setEditDraft(p => ({ ...p, trip_date: e.target.value }))}
-                          className={`border rounded px-2 py-1 text-xs w-32 ${dateErr ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                          className={`border rounded px-2 py-1 text-xs w-full ${dateErr ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                         />
                       </td>
                       <td>
                         <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">{veh?.plate_number}</span>
                       </td>
-                      <td>
+                      <td className="overflow-hidden">
                         <input type="text" value={editDraft.purpose}
                           onChange={e => setEditDraft(p => ({ ...p, purpose: e.target.value }))}
-                          className="border border-slate-300 rounded px-2 py-1 text-xs w-48" />
+                          className="border border-slate-300 rounded px-2 py-1 text-xs w-full" />
                       </td>
                       <td>
-                        <div className="flex gap-1 items-center">
+                        <div className="flex flex-col gap-1">
                           <input type="text" value={editDraft.route_from} placeholder="Skąd"
                             onChange={e => setEditDraft(p => ({ ...p, route_from: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-36" />
-                          <span className="text-slate-400">→</span>
+                            className="border border-slate-300 rounded px-2 py-1 text-xs w-full" />
                           <input type="text" value={editDraft.route_to} placeholder="Dokąd"
                             onChange={e => setEditDraft(p => ({ ...p, route_to: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-36" />
+                            className="border border-slate-300 rounded px-2 py-1 text-xs w-full" />
                         </div>
                       </td>
                       <td>
                         <div className="flex items-center gap-1">
                           <input type="number" min={1} value={editDraft.kilometers}
                             onChange={e => setEditDraft(p => ({ ...p, kilometers: e.target.value }))}
-                            className="border border-slate-300 rounded px-2 py-1 text-xs w-16"
+                            className="border border-slate-300 rounded px-2 py-1 text-xs w-full"
                           />
-                          <span className="text-xs text-slate-400">km</span>
                         </div>
                       </td>
                       <td className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
@@ -336,10 +346,10 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td>
                       <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">{veh?.plate_number}</span>
                     </td>
-                    <td className="max-w-xs">
-                      <span className="text-xs">{purpose}</span>
+                    <td className="overflow-hidden">
+                      <span className="text-xs truncate block">{purpose}</span>
                     </td>
-                    <td className="text-xs text-slate-500">
+                    <td className="text-xs text-slate-500 break-words min-w-0">
                       {t.route_from} → {t.route_to}
                     </td>
                     <td className="font-bold whitespace-nowrap tabular-nums text-xs">{km} km</td>

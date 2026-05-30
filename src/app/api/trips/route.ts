@@ -14,9 +14,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 422 })
 
   const data = parsed.data
-  const { data: nextNum, error: seqError } = await supabase
-    .schema('vat_km').rpc('next_entry_number', { p_vehicle_id: data.vehicle_id })
-  if (seqError) return NextResponse.json(interpretDbError(seqError.message), { status: 400 })
+  const { data: maxEntry } = await supabase
+    .schema('vat_km').from('trip_entries')
+    .select('entry_number')
+    .eq('vehicle_id', data.vehicle_id)
+    .order('entry_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextNum = (maxEntry?.entry_number ?? 0) + 1
 
   const { data: entry, error: insertError } = await supabase
     .schema('vat_km').from('trip_entries')
