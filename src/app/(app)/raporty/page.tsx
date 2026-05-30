@@ -28,7 +28,7 @@ export default async function RaportyPage() {
     .schema('vat_km')
     .from('trip_entries')
     .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
-    .order('trip_date', { ascending: false })
+    .order('entry_number', { ascending: true })
 
   return (
     <div className="flex flex-col h-full">
