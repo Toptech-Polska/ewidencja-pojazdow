@@ -85,8 +85,8 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase.schema('vat_km').from('vehicles').select('*').order('created_at'),
     supabase.schema('vat_km').from('trip_entries')
-      .select('*, vehicles(plate_number, make, model)')
-      .order('created_at', { ascending: false })
+      .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
+      .order('entry_number', { ascending: false })
       .limit(8),
     supabase.schema('vat_km').from('v_vat26_compliance').select('*'),
     supabase.schema('vat_km').from('trip_entries')
@@ -261,7 +261,7 @@ export default async function DashboardPage() {
                       <td className="text-xs text-slate-500 whitespace-nowrap">{t.route_from.split(',')[0]} → {t.route_to.split(',')[0]}</td>
                       <td className="font-semibold whitespace-nowrap">{t.kilometers ?? t.odometer_after - t.odometer_before} km</td>
                       <td className="text-slate-600 whitespace-nowrap">
-                        {t.driver_name_external ?? '—'}
+                        {t.driver_name_external ?? (t.driver as any)?.full_name ?? '—'}
                       </td>
                       <td>
                         {t.confirmed_by_company || !t.requires_confirmation

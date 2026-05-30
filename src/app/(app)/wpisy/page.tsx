@@ -27,7 +27,7 @@ export default async function WpisyPage({
       .schema('vat_km')
       .from('trip_entries')
       .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
-      .order('created_at', { ascending: false }),
+      .order('entry_number', { ascending: false }),
   ])
 
   return (
