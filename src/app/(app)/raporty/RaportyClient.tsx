@@ -18,6 +18,20 @@ function driverName(t: any): string {
   return t.driver_name_external ?? t.driver?.full_name ?? t.profiles?.full_name ?? '—'
 }
 
+// Stan licznika na początek/koniec okresu dla danego pojazdu (art. 86a ust. 7 pkt 3 ustawy o VAT).
+// Łańcuch licznika jest ciągły, więc początek = odometer_before pierwszego wpisu,
+// koniec = odometer_after ostatniego wpisu (wg kolejności entry_number).
+function odoBracket(vTrips: any[]): { start: number | null; end: number | null } {
+  const sorted = [...vTrips].sort((a, b) => (a.entry_number ?? 0) - (b.entry_number ?? 0))
+  const start = sorted.find(t => t.odometer_before != null)?.odometer_before ?? null
+  const end   = [...sorted].reverse().find(t => t.odometer_after != null)?.odometer_after ?? null
+  return { start, end }
+}
+
+function fmtOdo(v: number | null): string {
+  return v == null ? '—' : `${v.toLocaleString('pl-PL')} km`
+}
+
 export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent, ymPrevious, companyName, companyNip }: Props) {
   const [period, setPeriod]       = useState<'current' | 'previous' | 'custom'>('current')
   const [dateFrom, setDateFrom]   = useState(ymCurrent + '-01')
@@ -28,14 +42,24 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
   const drivers = useMemo(() => [...new Set(trips.map((t: any) => driverName(t)).filter(d => d !== '—'))].sort(), [trips])
 
   function periodLabel() {
-    if (period === 'current')  return formatYm(ymCurrent)
-    if (period === 'previous') return formatYm(ymPrevious)
-    return `${dateFrom} – ${dateTo}`
+    let from: Date, to: Date
+    if (period === 'current') {
+      const [y, m] = ymCurrent.split('-')
+      from = new Date(Number(y), Number(m) - 1, 1)
+      to   = new Date(Number(y), Number(m), 0)
+    } else if (period === 'previous') {
+      const [y, m] = ymPrevious.split('-')
+      from = new Date(Number(y), Number(m) - 1, 1)
+      to   = new Date(Number(y), Number(m), 0)
+    } else {
+      from = new Date(dateFrom)
+      to   = new Date(dateTo)
+    }
+    return `${fmtDate(from)} – ${fmtDate(to)}`
   }
 
-  function formatYm(ym: string) {
-    const [y, m] = ym.split('-')
-    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
+  function fmtDate(d: Date) {
+    return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
   }
 
   const filtered = useMemo(() => {
@@ -73,7 +97,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
 
   function exportCsv() {
     const rows = [
-      ['Nr', 'Data', 'Pojazd', 'Cel wyjazdu', 'Skąd', 'Dokąd', 'Km', 'Kierowca', 'Status'],
+      ['Nr', 'Data', 'Pojazd', 'Cel wyjazdu', 'Skąd', 'Dokąd', 'Licznik przed', 'Licznik po', 'Km', 'Kierowca', 'Status'],
       ...filtered.map((t: any) => [
         t.entry_number,
         t.trip_date,
@@ -81,6 +105,8 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
         t.purpose,
         t.route_from,
         t.route_to,
+        t.odometer_before ?? '',
+        t.odometer_after ?? '',
         t.kilometers ?? '',
         driverName(t),
         t.confirmed_by_company || !t.requires_confirmation ? 'OK' : 'Do potwierdzenia',
@@ -103,10 +129,13 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
       .filter(({ vTrips }) => vTrips.length > 0)
       .map(({ v, vTrips }) => {
         const km = vTrips.reduce((s: number, t: any) => s + (t.kilometers ?? 0), 0)
+        const { start, end } = odoBracket(vTrips)
         return `
           <tr>
             <td class="mono">${v.plate_number}</td>
             <td>${v.make} ${v.model}</td>
+            <td class="num">${fmtOdo(start)}</td>
+            <td class="num">${fmtOdo(end)}</td>
             <td class="num bold">${km.toLocaleString('pl-PL')} km</td>
             <td class="num">${vTrips.length}</td>
           </tr>`
@@ -123,6 +152,8 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
           <td class="mono">${t.vehicles?.plate_number ?? ''}</td>
           <td class="purpose">${t.purpose}</td>
           <td class="route">${t.route_from ?? ''} → ${t.route_to ?? ''}</td>
+          <td class="num">${t.odometer_before != null ? t.odometer_before.toLocaleString('pl-PL') : '—'}</td>
+          <td class="num">${t.odometer_after != null ? t.odometer_after.toLocaleString('pl-PL') : '—'}</td>
           <td class="num bold">${t.kilometers ?? 0} km</td>
           <td class="driver">${driver}</td>
           <td><span class="badge ${statusClass}">${status}</span></td>
@@ -202,10 +233,10 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
   </div>
   <div class="section-title">Zestawienie per pojazd</div>
   <table>
-    <thead><tr><th>Rejestracja</th><th>Marka / Model</th><th class="num">Km w zakresie</th><th class="num">Liczba wpisów</th></tr></thead>
+    <thead><tr><th>Rejestracja</th><th>Marka / Model</th><th class="num">Licznik – początek okresu</th><th class="num">Licznik – koniec okresu</th><th class="num">Km w zakresie</th><th class="num">Liczba wpisów</th></tr></thead>
     <tbody>
       ${vehicleSummaryRows}
-      <tr class="summary-row"><td colspan="2">ŁĄCZNIE</td><td class="num">${totalKm.toLocaleString('pl-PL')} km</td><td class="num">${filtered.length}</td></tr>
+      <tr class="summary-row"><td colspan="4">ŁĄCZNIE</td><td class="num">${totalKm.toLocaleString('pl-PL')} km</td><td class="num">${filtered.length}</td></tr>
     </tbody>
   </table>
   <div class="section-title" style="margin-top:14pt">Szczegółowe wpisy ewidencji</div>
@@ -213,21 +244,21 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
     <thead>
       <tr>
         <th class="num">Nr</th><th>Data</th><th>Pojazd</th><th>Cel wyjazdu</th>
-        <th>Trasa (skąd → dokąd)</th><th class="num">Km</th><th>Kierowca</th><th>Status</th>
+        <th>Trasa (skąd → dokąd)</th><th class="num">Licznik przed</th><th class="num">Licznik po</th><th class="num">Km</th><th>Kierowca</th><th>Status</th>
       </tr>
     </thead>
     <tbody>
       ${detailRows}
       <tr class="summary-row">
-        <td colspan="5" style="text-align:right">SUMA:</td>
+        <td colspan="7" style="text-align:right">SUMA:</td>
         <td class="num">${totalKm.toLocaleString('pl-PL')} km</td>
         <td colspan="2"></td>
       </tr>
     </tbody>
   </table>
   <div class="signature-block">
-    <div class="signature-line">Sporządził / Sporządziła</div>
-    <div class="signature-line">Zatwierdził / Zatwierdziła</div>
+    <div class="signature-line">Sporządził</div>
+    <div class="signature-line">Zatwierdził</div>
   </div>
   <div class="footer">
     <span>Ewidencja przebiegu pojazdu — wygenerowano automatycznie ${now}</span>
@@ -350,15 +381,18 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
       <div className="card">
         <div className="card-head"><span className="card-title">Zestawienie per pojazd</span></div>
         <table className="data-table">
-          <thead><tr><th>Rejestracja</th><th>Marka / Model</th><th>Km w zakresie</th><th>Wpisów</th></tr></thead>
+          <thead><tr><th>Rejestracja</th><th>Marka / Model</th><th>Licznik – pocz.</th><th>Licznik – koniec</th><th>Km w zakresie</th><th>Wpisów</th></tr></thead>
           <tbody>
             {vehicles.map(v => {
               const vTrips = filtered.filter((t: any) => t.vehicle_id === v.id)
               const km = vTrips.reduce((s: number, t: any) => s + (t.kilometers ?? 0), 0)
+              const { start, end } = odoBracket(vTrips)
               return (
                 <tr key={v.id} className={vTrips.length === 0 ? 'opacity-40' : ''}>
                   <td className="font-mono font-bold text-slate-900 text-xs">{v.plate_number}</td>
                   <td className="text-slate-500">{v.make} {v.model}</td>
+                  <td className="tabular-nums text-slate-600">{start != null ? start.toLocaleString('pl-PL') : '—'}</td>
+                  <td className="tabular-nums text-slate-600">{end != null ? end.toLocaleString('pl-PL') : '—'}</td>
                   <td className={`font-bold ${km > 0 ? 'text-green-700' : 'text-slate-300'}`}>{km.toLocaleString('pl-PL')} km</td>
                   <td className={vTrips.length === 0 ? 'text-slate-300' : ''}>{vTrips.length}</td>
                 </tr>
@@ -366,7 +400,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
             })}
             {filtered.length > 0 && (
               <tr className="bg-slate-50 border-t-2 border-slate-300">
-                <td colSpan={2} className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Łącznie</td>
+                <td colSpan={4} className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Łącznie</td>
                 <td className="font-bold text-green-700">{totalKm.toLocaleString('pl-PL')} km</td>
                 <td className="font-bold">{filtered.length}</td>
               </tr>
@@ -383,7 +417,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
         <div className="overflow-x-auto">
           <table className="data-table min-w-max">
             <thead>
-              <tr><th>Nr</th><th>Data</th><th>Pojazd</th><th>Cel wyjazdu</th><th>Skąd → Dokąd</th><th>Km</th><th>Kierowca</th><th>Status</th></tr>
+              <tr><th>Nr</th><th>Data</th><th>Pojazd</th><th>Cel wyjazdu</th><th>Skąd → Dokąd</th><th>Licznik przed</th><th>Licznik po</th><th>Km</th><th>Kierowca</th><th>Status</th></tr>
             </thead>
             <tbody>
               {filtered.map((t: any) => (
@@ -393,6 +427,8 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
                   <td><span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded font-semibold">{t.vehicles?.plate_number}</span></td>
                   <td className="max-w-xs text-xs">{t.purpose.length > 40 ? t.purpose.slice(0, 38) + '…' : t.purpose}</td>
                   <td className="text-xs text-slate-500">{t.route_from} → {t.route_to}</td>
+                  <td className="tabular-nums text-slate-600 whitespace-nowrap text-xs">{t.odometer_before != null ? t.odometer_before.toLocaleString('pl-PL') : '—'}</td>
+                  <td className="tabular-nums text-slate-600 whitespace-nowrap text-xs">{t.odometer_after != null ? t.odometer_after.toLocaleString('pl-PL') : '—'}</td>
                   <td className="font-bold whitespace-nowrap tabular-nums">{t.kilometers} km</td>
                   <td className="text-slate-600 whitespace-nowrap text-xs">{driverName(t)}</td>
                   <td>
@@ -403,7 +439,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="text-center text-slate-400 py-8 text-sm">Brak wpisów w wybranym zakresie</td></tr>
+                <tr><td colSpan={10} className="text-center text-slate-400 py-8 text-sm">Brak wpisów w wybranym zakresie</td></tr>
               )}
             </tbody>
           </table>
