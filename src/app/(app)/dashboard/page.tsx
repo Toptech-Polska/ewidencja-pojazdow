@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Topbar } from '@/components/layout/Topbar'
-import type { Vehicle, TripEntry, Vat26ComplianceRow } from '@/types/database'
+import type { Vehicle, TripEntry } from '@/types/database'
 
 function Badge({ type, children }: { type: 'ok'|'warn'|'danger'|'info'|'gray', children: React.ReactNode }) {
   return <span className={`badge badge-${type}`}>{children}</span>
@@ -17,8 +17,6 @@ function KpiCard({ label, value, sub, color }: { label: string; value: number | 
   )
 }
 
-// Pełnoekranowy onboarding dla użytkowników po pierwszym logowaniu Google,
-// którzy nie mają jeszcze nadanej roli przez admina.
 function PendingRoleScreen({ fullName, isInactive }: { fullName: string; isInactive: boolean }) {
   return (
     <div className="flex flex-col h-full">
@@ -57,9 +55,6 @@ export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Sprawdź status onboardingu (omija RLS przez SECURITY DEFINER w bazie).
-  // Jeśli profil nie istnieje (np. trigger nie zadziałał) lub role_assigned=false
-  // lub is_active=false — pokaż onboarding screen zamiast dashboardu.
   const { data: statusRows } = await supabase
     .schema('vat_km')
     .rpc('my_onboarding_status')
@@ -80,27 +75,28 @@ export default async function DashboardPage() {
   const [
     { data: vehicles },
     { data: trips },
-    { data: compliance },
-    { count: pendingCount },
+    { data: lastEntryRows },
   ] = await Promise.all([
     supabase.schema('vat_km').from('vehicles').select('*').order('created_at'),
     supabase.schema('vat_km').from('trip_entries')
       .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
       .order('entry_number', { ascending: false })
       .limit(8),
-    supabase.schema('vat_km').from('v_vat26_compliance').select('*'),
     supabase.schema('vat_km').from('trip_entries')
-      .select('*', { count: 'exact', head: true })
-      .eq('requires_confirmation', true)
-      .eq('confirmed_by_company', false),
+      .select('vehicle_id, trip_date')
+      .order('trip_date', { ascending: false }),
   ])
 
-  const activeVehicles   = (vehicles ?? []).filter(v => v.status === 'aktywny')
-  const vat26Alerts      = (compliance ?? []).filter(c =>
-    ['overdue', 'urgent', 'pending', 'no_expense_date'].includes(c.vat26_status ?? '')
-  )
+  // vehicle_id -> last trip_date (one pass, no N+1)
+  const lastEntryMap = new Map<string, string>()
+  for (const row of lastEntryRows ?? []) {
+    if (!lastEntryMap.has(row.vehicle_id)) {
+      lastEntryMap.set(row.vehicle_id, row.trip_date)
+    }
+  }
 
-  // Km w bieżącym miesiącu
+  const activeVehicles = (vehicles ?? []).filter(v => v.status === 'aktywny')
+
   const now = new Date()
   const ymCurrent = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const { data: monthlyData } = await supabase
@@ -110,8 +106,17 @@ export default async function DashboardPage() {
     .eq('year_month', ymCurrent)
 
   const kmThisMonth = (monthlyData ?? []).reduce((s, r) => s + (r.total_km ?? 0), 0)
-
   const monthName = now.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
+
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  function daysSince(tripDateStr: string): number {
+    return Math.floor(
+      (todayMidnight.getTime() - new Date(tripDateStr + 'T00:00:00').getTime()) / 86400000
+    )
+  }
+  function fmtDate(dateStr: string): string {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('pl-PL')
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -119,7 +124,7 @@ export default async function DashboardPage() {
 
       <div className="main-scroll p-5 space-y-4">
         {/* KPI */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <KpiCard
             label="Aktywne pojazdy"
             value={activeVehicles.length}
@@ -131,37 +136,60 @@ export default async function DashboardPage() {
             sub={monthName}
             color="text-green-700"
           />
-          <KpiCard
-            label="Do potwierdzenia"
-            value={pendingCount ?? 0}
-            sub="wpisy kierowców zewn."
-            color={(pendingCount ?? 0) > 0 ? 'text-amber-600' : ''}
-          />
-          <KpiCard
-            label="Alerty VAT-26"
-            value={vat26Alerts.length}
-            sub="wymagają działania"
-            color={vat26Alerts.length > 0 ? 'text-red-600' : ''}
-          />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          {/* Status pojazdów */}
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Status pojazdów</span>
-              <Link href="/pojazdy" className="text-xs text-blue-600 hover:text-blue-800">Wszystkie →</Link>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Tablica</th>
-                  <th>Pojazd</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(vehicles ?? []).map(v => (
+        {/* Status pojazdów */}
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Status pojazdów</span>
+            <Link href="/pojazdy" className="text-xs text-blue-600 hover:text-blue-800">Wszystkie →</Link>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Tablica</th>
+                <th>Pojazd</th>
+                <th>Status</th>
+                <th>Ostatni wpis</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(vehicles ?? []).map(v => {
+                const lastDate = lastEntryMap.get(v.id) ?? null
+                const isActive = v.status === 'aktywny'
+                const days = lastDate ? daysSince(lastDate) : null
+
+                let lastEntryCell
+                if (!isActive) {
+                  lastEntryCell = lastDate
+                    ? <span className="text-xs text-slate-500">{fmtDate(lastDate)}</span>
+                    : <span className="text-xs text-slate-400">—</span>
+                } else if (!lastDate) {
+                  lastEntryCell = (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">brak wpisów</span>
+                      <Link href={`/wpisy/nowy?vehicle=${v.id}`} className="badge badge-danger">UZUPEŁNIJ</Link>
+                    </div>
+                  )
+                } else if (days! <= 14) {
+                  lastEntryCell = <span className="text-xs text-slate-500">{fmtDate(lastDate)}</span>
+                } else if (days! <= 28) {
+                  lastEntryCell = (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">{fmtDate(lastDate)}</span>
+                      <Badge type="warn">{days} dni temu</Badge>
+                    </div>
+                  )
+                } else {
+                  lastEntryCell = (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">{fmtDate(lastDate)}</span>
+                      <Link href={`/wpisy/nowy?vehicle=${v.id}`} className="badge badge-danger">UZUPEŁNIJ</Link>
+                    </div>
+                  )
+                }
+
+                return (
                   <tr key={v.id} className="cursor-pointer hover:bg-slate-50">
                     <td>
                       <Link href={`/pojazdy/${v.id}`} className="font-mono font-bold text-slate-900 text-xs">
@@ -176,61 +204,15 @@ export default async function DashboardPage() {
                       {v.status === 'zakonczony' && <Badge type="gray">Zakończony</Badge>}
                       {v.status === 'zmieniony_sposob' && <Badge type="warn">Zmieniony sposób</Badge>}
                     </td>
+                    <td>{lastEntryCell}</td>
                   </tr>
-                ))}
-                {!vehicles?.length && (
-                  <tr><td colSpan={3} className="text-center text-slate-400 py-6 text-sm">Brak pojazdów — <Link href="/pojazdy/nowy" className="text-blue-600">dodaj pierwszy</Link></td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Alerty compliance */}
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Alerty compliance</span>
-              <Link href="/compliance" className="text-xs text-blue-600 hover:text-blue-800">Szczegóły →</Link>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {vat26Alerts.map(c => (
-                <div key={c.id} className="flex gap-3 p-3"
-                     style={{ borderLeft: `3px solid ${c.vat26_status === 'overdue' ? '#ef4444' : '#f59e0b'}` }}>
-                  <div className={`w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center font-bold text-xs
-                    ${c.vat26_status === 'overdue' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'}`}>
-                    {c.vat26_status === 'overdue' ? '!' : '⚠'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-900">{c.plate_number} — {c.make} {c.model}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {c.vat26_status === 'overdue'
-                        ? `Po terminie! Termin był: ${c.vat26_deadline}`
-                        : `Termin: ${c.vat26_deadline} · Pozostało: ${c.days_until_deadline} dni`}
-                    </p>
-                    <Link href="/compliance" className="text-xs text-blue-600 mt-1 inline-block">Przejdź do VAT-26 →</Link>
-                  </div>
-                </div>
-              ))}
-              {(pendingCount ?? 0) > 0 && (
-                <div className="flex gap-3 p-3" style={{ borderLeft: '3px solid #f59e0b' }}>
-                  <div className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center font-bold text-xs bg-amber-50 text-amber-600">⚠</div>
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-slate-900">{pendingCount} wpisów wymaga potwierdzenia</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Kierowcy zewnętrzni · art. 86a ust. 7 pkt 2</p>
-                    <Link href="/wpisy?filter=pending" className="text-xs text-blue-600 mt-1 inline-block">Zatwierdź wpisy →</Link>
-                  </div>
-                </div>
+                )
+              })}
+              {!vehicles?.length && (
+                <tr><td colSpan={4} className="text-center text-slate-400 py-6 text-sm">Brak pojazdów — <Link href="/pojazdy/nowy" className="text-blue-600">dodaj pierwszy</Link></td></tr>
               )}
-              {vat26Alerts.length === 0 && (pendingCount ?? 0) === 0 && (
-                <div className="flex gap-3 p-3" style={{ borderLeft: '3px solid #10b981' }}>
-                  <div className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center font-bold text-xs bg-green-50 text-green-600">✓</div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-900">Wszystko w porządku</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Brak aktywnych alertów compliance</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
 
         {/* Ostatnie wpisy */}

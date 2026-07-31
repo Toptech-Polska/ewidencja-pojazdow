@@ -147,7 +147,7 @@ function buildReturnEntry(orig: {
 // ── TripForm ───────────────────────────────────────────────────
 function TripForm({
   vehicles, profiles, currentUserId, userLocations,
-  insertAfterEntry, nextEntry, myDefaultVehicleId,
+  insertAfterEntry, nextEntry, myDefaultVehicleId, preselectedVehicleId,
 }: {
   vehicles: Vehicle[]
   profiles: Profile[]
@@ -156,6 +156,7 @@ function TripForm({
   insertAfterEntry: InsertAfterData | null
   nextEntry: { trip_date: string } | null
   myDefaultVehicleId: string | null
+  preselectedVehicleId: string | null
 }) {
   const router = useRouter()
   const [saving, setSaving]             = useState(false)
@@ -179,7 +180,7 @@ function TripForm({
     : profiles
 
   const [f, setF] = useState({
-    vehicle_id:           insertAfterEntry?.vehicle_id ?? myDefaultVehicleId ?? vehicles[0]?.id ?? '',
+    vehicle_id:           insertAfterEntry?.vehicle_id ?? preselectedVehicleId ?? myDefaultVehicleId ?? vehicles[0]?.id ?? '',
     trip_date:            TODAY,
     purpose:              '',
     route_from:           '',
@@ -705,16 +706,18 @@ function LoanForm({ vehicles, profiles, currentUserId, myDefaultVehicleId }: {
 function NowyWpisPageInner() {
   const searchParams = useSearchParams()
   const insertAfter  = searchParams.get('insertAfter') // UUID or null
+  const vehicleParam = searchParams.get('vehicle')     // vehicle id or null
 
-  const [tab,               setTab]               = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
-  const [vehicles,          setVehicles]          = useState<Vehicle[]>([])
-  const [profiles,          setProfiles]          = useState<Profile[]>([])
-  const [currentUserId,     setCurrentUserId]     = useState<string | null>(null)
-  const [userLocations,     setUserLocations]     = useState<SimulationLocation[]>([])
-  const [myDefaultVehicleId, setMyDefaultVehicleId] = useState<string | null>(null)
-  const [insertAfterEntry,  setInsertAfterEntry]  = useState<InsertAfterData | null>(null)
-  const [nextEntry,         setNextEntry]         = useState<{ trip_date: string } | null>(null)
-  const [loading,           setLoading]           = useState(true)
+  const [tab,                   setTab]                   = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
+  const [vehicles,              setVehicles]              = useState<Vehicle[]>([])
+  const [profiles,              setProfiles]              = useState<Profile[]>([])
+  const [currentUserId,         setCurrentUserId]         = useState<string | null>(null)
+  const [userLocations,         setUserLocations]         = useState<SimulationLocation[]>([])
+  const [myDefaultVehicleId,    setMyDefaultVehicleId]    = useState<string | null>(null)
+  const [preselectedVehicleId,  setPreselectedVehicleId]  = useState<string | null>(null)
+  const [insertAfterEntry,      setInsertAfterEntry]      = useState<InsertAfterData | null>(null)
+  const [nextEntry,             setNextEntry]             = useState<{ trip_date: string } | null>(null)
+  const [loading,               setLoading]               = useState(true)
 
   useEffect(() => {
     loadData(null).then(async ({ currentUserId, vehicles, profiles, userLocations, myDefaultVehicleId }) => {
@@ -723,6 +726,8 @@ function NowyWpisPageInner() {
       setProfiles(profiles)
       setUserLocations(userLocations)
       setMyDefaultVehicleId(myDefaultVehicleId)
+      const validated = vehicleParam && vehicles.find(v => v.id === vehicleParam) ? vehicleParam : null
+      setPreselectedVehicleId(validated)
 
       if (insertAfter) {
         const supabase = createClient()
@@ -780,6 +785,7 @@ function NowyWpisPageInner() {
               insertAfterEntry={insertAfterEntry}
               nextEntry={nextEntry}
               myDefaultVehicleId={myDefaultVehicleId}
+              preselectedVehicleId={preselectedVehicleId}
             />
           ) : (
             <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} myDefaultVehicleId={myDefaultVehicleId} />
