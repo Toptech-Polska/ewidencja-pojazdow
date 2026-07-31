@@ -29,14 +29,16 @@ async function loadData(userId: string | null) {
   ])
 
   let userLocations: SimulationLocation[] = []
+  let myDefaultVehicleId: string | null = null
   if (user?.id) {
     const { data: profileData } = await supabase
       .schema('vat_km')
       .from('profiles')
-      .select('simulation_config')
+      .select('simulation_config, default_vehicle_id')
       .eq('id', user.id)
       .single()
     userLocations = profileData?.simulation_config?.locations ?? []
+    myDefaultVehicleId = profileData?.default_vehicle_id ?? null
   }
 
   return {
@@ -44,6 +46,7 @@ async function loadData(userId: string | null) {
     vehicles: veh ?? [],
     profiles: prof ?? [],
     userLocations,
+    myDefaultVehicleId,
   }
 }
 
@@ -143,7 +146,7 @@ function buildReturnEntry(orig: {
 // ── TripForm ───────────────────────────────────────────────────
 function TripForm({
   vehicles, profiles, currentUserId, userLocations,
-  insertAfterEntry, nextEntry,
+  insertAfterEntry, nextEntry, myDefaultVehicleId,
 }: {
   vehicles: Vehicle[]
   profiles: Profile[]
@@ -151,6 +154,7 @@ function TripForm({
   userLocations: SimulationLocation[]
   insertAfterEntry: InsertAfterData | null
   nextEntry: { trip_date: string } | null
+  myDefaultVehicleId: string | null
 }) {
   const router = useRouter()
   const [saving, setSaving]             = useState(false)
@@ -159,6 +163,7 @@ function TripForm({
   const [error,  setError]              = useState<DbError | null>(null)
   const [errs,   setErrs]               = useState<Record<string, string>>({})
   const [createReturn, setCreateReturn] = useState(false)
+  const [confirmOpen, setConfirmOpen]   = useState(false)
 
   const isInsertMode = !!insertAfterEntry
 
@@ -168,7 +173,7 @@ function TripForm({
     : profiles
 
   const [f, setF] = useState({
-    vehicle_id:           insertAfterEntry?.vehicle_id ?? vehicles[0]?.id ?? '',
+    vehicle_id:           insertAfterEntry?.vehicle_id ?? myDefaultVehicleId ?? vehicles[0]?.id ?? '',
     trip_date:            TODAY,
     purpose:              '',
     route_from:           '',
@@ -220,8 +225,16 @@ function TripForm({
     setErrs(e); return Object.keys(e).length === 0
   }
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!validate()) return
+    if (myDefaultVehicleId && f.vehicle_id !== myDefaultVehicleId) {
+      setConfirmOpen(true)
+      return
+    }
+    void doSubmit()
+  }
+
+  async function doSubmit() {
     setSaving(true); setError(null)
     try {
       const driverFields = f.driver_type === 'internal'
@@ -329,6 +342,9 @@ function TripForm({
       setSaving(false)
     }
   }
+
+  const selectedVehicle = vehicles.find(v => v.id === f.vehicle_id)
+  const defaultVehicle  = myDefaultVehicleId ? vehicles.find(v => v.id === myDefaultVehicleId) : null
 
   if (saved) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
@@ -513,6 +529,35 @@ function TripForm({
           {saving ? 'Zapisywanie…' : createReturn ? 'Zapisz wyjazd i powrót' : 'Zapisz wpis'}
         </button>
       </div>
+
+      {confirmOpen && selectedVehicle && defaultVehicle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-semibold text-slate-800">Potwierdź wybór pojazdu</h3>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-700">
+                Wybrany pojazd{' '}
+                <strong className="font-mono">{selectedVehicle.plate_number}</strong>{' '}
+                — {selectedVehicle.make} {selectedVehicle.model}{' '}
+                nie jest Twoim przypisanym autem{' '}
+                (<span className="font-mono font-semibold">{defaultVehicle.plate_number}</span>).
+              </p>
+              <p className="text-sm text-slate-500">Dodać wpis mimo to?</p>
+            </div>
+            <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
+              <button onClick={() => setConfirmOpen(false)} className="btn-outline">Anuluj</button>
+              <button
+                onClick={() => { setConfirmOpen(false); void doSubmit() }}
+                className="btn-primary"
+              >
+                Tak, dodaj wpis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -673,21 +718,23 @@ function NowyWpisPageInner() {
   const searchParams = useSearchParams()
   const insertAfter  = searchParams.get('insertAfter') // UUID or null
 
-  const [tab,             setTab]             = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
-  const [vehicles,        setVehicles]        = useState<Vehicle[]>([])
-  const [profiles,        setProfiles]        = useState<Profile[]>([])
-  const [currentUserId,   setCurrentUserId]   = useState<string | null>(null)
-  const [userLocations,   setUserLocations]   = useState<SimulationLocation[]>([])
-  const [insertAfterEntry, setInsertAfterEntry] = useState<InsertAfterData | null>(null)
-  const [nextEntry,        setNextEntry]       = useState<{ trip_date: string } | null>(null)
-  const [loading,         setLoading]         = useState(true)
+  const [tab,               setTab]               = useState<'wyjazd' | 'udostepnienie'>('wyjazd')
+  const [vehicles,          setVehicles]          = useState<Vehicle[]>([])
+  const [profiles,          setProfiles]          = useState<Profile[]>([])
+  const [currentUserId,     setCurrentUserId]     = useState<string | null>(null)
+  const [userLocations,     setUserLocations]     = useState<SimulationLocation[]>([])
+  const [myDefaultVehicleId, setMyDefaultVehicleId] = useState<string | null>(null)
+  const [insertAfterEntry,  setInsertAfterEntry]  = useState<InsertAfterData | null>(null)
+  const [nextEntry,         setNextEntry]         = useState<{ trip_date: string } | null>(null)
+  const [loading,           setLoading]           = useState(true)
 
   useEffect(() => {
-    loadData(null).then(async ({ currentUserId, vehicles, profiles, userLocations }) => {
+    loadData(null).then(async ({ currentUserId, vehicles, profiles, userLocations, myDefaultVehicleId }) => {
       setCurrentUserId(currentUserId)
       setVehicles(vehicles)
       setProfiles(profiles)
       setUserLocations(userLocations)
+      setMyDefaultVehicleId(myDefaultVehicleId)
 
       if (insertAfter) {
         const supabase = createClient()
@@ -744,6 +791,7 @@ function NowyWpisPageInner() {
               userLocations={userLocations}
               insertAfterEntry={insertAfterEntry}
               nextEntry={nextEntry}
+              myDefaultVehicleId={myDefaultVehicleId}
             />
           ) : (
             <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} />

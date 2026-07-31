@@ -7,7 +7,7 @@ import type { SimulatedTrip } from '@/lib/simulation/types'
 import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
 import type { DbError } from '@/lib/errors/db-errors'
 
-interface Props { vehicles: Vehicle[] }
+interface Props { vehicles: Vehicle[]; defaultVehicleId: string | null }
 type TripWithId = SimulatedTrip & { _id: number }
 type Step = 'form' | 'preview' | 'success'
 
@@ -150,7 +150,7 @@ function PreviewStep({ trips, vehicleLabel, targetKm, onChange, onSave, onBack, 
   )
 }
 
-export function SimulacjaForm({ vehicles }: Props) {
+export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
   const router = useRouter()
   const today    = new Date().toISOString().slice(0, 10)
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
@@ -161,7 +161,10 @@ export function SimulacjaForm({ vehicles }: Props) {
   const [error,   setError]   = useState<DbError | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving,  setSaving]  = useState(false)
-  const [f, setF] = useState({ vehicle_id: vehicles[0]?.id ?? '', startDate: monthAgo, endDate: today, currentOdometer: '' })
+  const defaultVid = (defaultVehicleId && vehicles.find(v => v.id === defaultVehicleId))
+    ? defaultVehicleId
+    : vehicles[0]?.id ?? ''
+  const [f, setF] = useState({ vehicle_id: defaultVid, startDate: monthAgo, endDate: today, currentOdometer: '' })
   const [errs, setErrs] = useState<Record<string, string>>({})
   const vLabel = vehicles.find(v => v.id === f.vehicle_id)
   const vehicleLabel = vLabel ? `${vLabel.plate_number} - ${vLabel.make} ${vLabel.model}` : ''

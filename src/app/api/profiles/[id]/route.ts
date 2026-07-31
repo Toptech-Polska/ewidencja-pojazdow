@@ -12,11 +12,12 @@ const LocationSchema = z.object({
 // Admin: może edytować imię/nazwisko, rolę, status aktywności i — kluczowe —
 // flagę role_assigned. Pierwsze nadanie roli oznacza ustawienie role_assigned=true.
 const AdminUpdateSchema = z.object({
-  full_name:         z.string().min(2).max(200).optional(),
-  role:              z.enum(['administrator', 'ksiegowosc', 'kierowca', 'kontrola']).optional(),
-  is_active:         z.boolean().optional(),
-  role_assigned:     z.boolean().optional(),
-  simulation_config: z.object({ locations: z.array(LocationSchema) }).optional(),
+  full_name:          z.string().min(2).max(200).optional(),
+  role:               z.enum(['administrator', 'ksiegowosc', 'kierowca', 'kontrola']).optional(),
+  is_active:          z.boolean().optional(),
+  role_assigned:      z.boolean().optional(),
+  simulation_config:  z.object({ locations: z.array(LocationSchema) }).optional(),
+  default_vehicle_id: z.string().uuid().nullable().optional(),
 })
 
 const SelfUpdateSchema = z.object({

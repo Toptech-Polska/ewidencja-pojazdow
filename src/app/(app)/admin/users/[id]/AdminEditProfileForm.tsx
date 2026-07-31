@@ -11,16 +11,20 @@ const ROLE_LABELS: Record<UserRole, string> = {
   kontrola:      'Kontrola',
 }
 
+type VehicleOption = { id: string; plate_number: string; make: string; model: string }
+
 interface Props {
   profile: Profile
+  vehicles: VehicleOption[]
 }
 
-export function AdminEditProfileForm({ profile }: Props) {
+export function AdminEditProfileForm({ profile, vehicles }: Props) {
   const router = useRouter()
   const [f, setF] = useState({
-    full_name: profile.full_name,
-    role:      profile.role,
-    is_active: profile.is_active,
+    full_name:          profile.full_name,
+    role:               profile.role,
+    is_active:          profile.is_active,
+    default_vehicle_id: profile.default_vehicle_id ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
@@ -33,7 +37,12 @@ export function AdminEditProfileForm({ profile }: Props) {
       const res = await fetch(`/api/profiles/${profile.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: f.full_name.trim(), role: f.role, is_active: f.is_active }),
+        body: JSON.stringify({
+          full_name:          f.full_name.trim(),
+          role:               f.role,
+          is_active:          f.is_active,
+          default_vehicle_id: f.default_vehicle_id || null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Blad zapisu'); setSaving(false); return }
@@ -74,6 +83,17 @@ export function AdminEditProfileForm({ profile }: Props) {
             </span>
           </label>
         </div>
+      </div>
+
+      <div>
+        <label className="form-label">Domyslny pojazd</label>
+        <select className="form-input" value={f.default_vehicle_id}
+          onChange={e => setF(p => ({ ...p, default_vehicle_id: e.target.value }))}>
+          <option value="">— brak —</option>
+          {vehicles.map(v => (
+            <option key={v.id} value={v.id}>{v.plate_number} — {v.make} {v.model}</option>
+          ))}
+        </select>
       </div>
 
       {saved && (

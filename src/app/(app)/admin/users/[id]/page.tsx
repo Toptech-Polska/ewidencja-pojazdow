@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Topbar } from '@/components/layout/Topbar'
 import { AdminEditProfileForm } from './AdminEditProfileForm'
 import { SimulationConfigForm } from '@/app/(app)/profil/SimulationConfigForm'
-import type { Profile } from '@/types/database'
+import type { Profile, Vehicle } from '@/types/database'
 
 const ROLE_LABELS: Record<string, string> = {
   administrator: 'Administrator',
@@ -32,6 +32,12 @@ export default async function AdminUserDetailPage({ params }: { params: { id: st
 
   if (!profile) notFound()
 
+  const { data: vehicles } = await supabase
+    .schema('vat_km').from('vehicles')
+    .select('id, plate_number, make, model')
+    .eq('status', 'aktywny')
+    .order('plate_number')
+
   const showSimulation = ['administrator', 'kierowca'].includes(profile.role)
 
   return (
@@ -53,7 +59,10 @@ export default async function AdminUserDetailPage({ params }: { params: { id: st
 
           <div className="p-5">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Dane podstawowe</p>
-            <AdminEditProfileForm profile={profile as Profile} />
+            <AdminEditProfileForm
+              profile={profile as Profile}
+              vehicles={(vehicles ?? []) as Pick<Vehicle, 'id' | 'plate_number' | 'make' | 'model'>[]}
+            />
           </div>
         </div>
 

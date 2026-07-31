@@ -19,6 +19,7 @@ interface Props {
   ymCurrent:        string
   ymPrevious:       string
   vehicleCompanies: Record<string, CompanyData>
+  defaultVehicleId: string | null
 }
 
 function driverName(t: any): string {
@@ -39,11 +40,11 @@ function fmtOdo(v: number | null): string {
   return v == null ? '—' : `${v.toLocaleString('pl-PL')} km`
 }
 
-export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent, ymPrevious, vehicleCompanies }: Props) {
+export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent, ymPrevious, vehicleCompanies, defaultVehicleId }: Props) {
   const [period, setPeriod]       = useState<'current' | 'previous' | 'custom'>('current')
   const [dateFrom, setDateFrom]   = useState(ymCurrent + '-01')
   const [dateTo, setDateTo]       = useState(ymCurrent + '-30')
-  const [selVid, setSelVid]       = useState('')
+  const [selVid, setSelVid]       = useState(defaultVehicleId ?? '')
   const [selDriver, setSelDriver] = useState('')
 
   const drivers = useMemo(() => [...new Set(trips.map((t: any) => driverName(t)).filter(d => d !== '—'))].sort(), [trips])

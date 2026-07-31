@@ -10,6 +10,13 @@ export default async function RaportyPage() {
   const prevMonth  = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const ymPrevious = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: currentProfile } = user ? await supabase
+    .schema('vat_km').from('profiles')
+    .select('default_vehicle_id')
+    .eq('id', user.id)
+    .single() : { data: null }
+
   const [
     { data: vehicles },
     { data: profiles },
@@ -51,6 +58,7 @@ export default async function RaportyPage() {
         ymCurrent={ymCurrent}
         ymPrevious={ymPrevious}
         vehicleCompanies={vehicleCompanies}
+        defaultVehicleId={currentProfile?.default_vehicle_id ?? null}
       />
     </div>
   )

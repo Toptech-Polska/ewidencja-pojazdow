@@ -11,7 +11,7 @@ export default async function SymulacjaPage() {
 
   const { data: profile } = await supabase
     .schema('vat_km').from('profiles')
-    .select('role, company_id').eq('id', user.id).single()
+    .select('role, company_id, default_vehicle_id').eq('id', user.id).single()
 
   if (!profile || !['administrator', 'kierowca'].includes(profile.role)) {
     redirect('/dashboard')
@@ -36,7 +36,10 @@ export default async function SymulacjaPage() {
               Wpisy są generowane deterministycznie i spełniają wymóg ciągłości licznika.
             </p>
           </div>
-          <SimulacjaForm vehicles={(vehicles ?? []) as Vehicle[]} />
+          <SimulacjaForm
+            vehicles={(vehicles ?? []) as Vehicle[]}
+            defaultVehicleId={profile.default_vehicle_id ?? null}
+          />
         </div>
       </div>
     </div>

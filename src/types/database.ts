@@ -57,6 +57,7 @@ export interface Profile {
   is_active: boolean
   role_assigned: boolean
   simulation_config: SimulationConfig | null
+  default_vehicle_id: string | null
   created_at: string
 }
 
