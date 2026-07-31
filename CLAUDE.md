@@ -1,181 +1,93 @@
-# CLAUDE.md — Ewidencja Pojazdów: Migracja auth na Google OAuth + auth_hub whitelist
+# CLAUDE.md
 
-## Cel zadania
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zastąp istniejące logowanie e-mail/hasło **wyłącznie logowaniem przez Google OAuth**.
-Dostęp tylko dla adresów email zatwierdzonych w tabeli `auth_hub.allowed_emails` w Supabase.
-
-Nie zmieniaj żadnej logiki biznesowej, stylów, komponentów ani innych stron aplikacji.
-
----
-
-## Stack i kluczowa różnica
-
-Ta aplikacja to **Next.js App Router** z serwerowym middleware — NIE Vite SPA.
-Auth callback to prawdziwy endpoint serwerowy (`route.ts`), nie strona React.
-Sprawdzenie whitelist dzieje się po stronie **serwera**, nie klienta.
-
----
-
-## Supabase — projekt i tabele
-
-- **Projekt:** `cukohoqgvcsvmopvivjt` — już skonfigurowany w `.env.local`, Google OAuth włączony
-- **Tabela whitelist:** `auth_hub.allowed_emails` (kolumny: `email TEXT`, `is_active BOOLEAN`)
-- **Tabela ról:** `auth_hub.user_app_roles` (kolumny: `user_id UUID`, `app TEXT`, `role TEXT`)
-- **App identifier dla tej aplikacji:** `'vat_km'`
-- **Dane aplikacji:** schemat `vat_km` — już w tym samym projekcie Supabase
-
----
-
-## Co zmienić
-
-### 1. `src/app/(auth)/login/page.tsx` — ZASTĄP całą zawartość
-
-Nowa strona logowania:
-- Usuń formularz email/hasło całkowicie
-- Dodaj jeden przycisk "Zaloguj się przez Google" wywołujący Server Action lub `signInWithOAuth` po stronie klienta
-- Zachowaj istniejący styl (logo KM, `bg-white rounded-2xl`, kolory slate)
-- Jeśli URL zawiera `?error=unauthorized` — wyświetl komunikat: "Twój adres email nie ma dostępu do tej aplikacji. Skontaktuj się z administratorem."
-
-Implementacja przycisku Google (client component):
-```typescript
-'use client'
-import { createClient } from '@/lib/supabase/client'
-
-export function GoogleLoginButton() {
-  const handleLogin = async () => {
-    const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-  }
-
-  return (
-    <button onClick={handleLogin} className="btn-primary w-full ...">
-      <GoogleIcon />
-      Zaloguj się przez Google
-    </button>
-  )
-}
-```
-
----
-
-### 2. `src/app/auth/callback/route.ts` — UTWÓRZ NOWY
-
-Serwerowy endpoint obsługujący powrót z Google OAuth.
-Sprawdza whitelist i wpuszcza lub odrzuca użytkownika.
-
-```typescript
-import { NextResponse } from 'next/server'
-import { type NextRequest } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-
-export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
-  const code = searchParams.get('code')
-
-  if (!code) {
-    return NextResponse.redirect(`${origin}/login?error=no_code`)
-  }
-
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  // Wymień code na sesję
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
-  if (error) {
-    return NextResponse.redirect(`${origin}/login?error=auth_error`)
-  }
-
-  // Pobierz zalogowanego użytkownika
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) {
-    return NextResponse.redirect(`${origin}/login?error=no_user`)
-  }
-
-  // Sprawdź whitelist w auth_hub
-  const { data: allowed } = await supabase
-    .rpc('check_email_allowed', { p_email: user.email })
-
-  if (!allowed) {
-    // Email nie na whitelist — wyloguj i przekieruj z błędem
-    await supabase.auth.signOut()
-    return NextResponse.redirect(`${origin}/login?error=unauthorized`)
-  }
-
-  // Wpuść użytkownika
-  return NextResponse.redirect(`${origin}/dashboard`)
-}
-```
-
----
-
-### 3. `src/lib/supabase/middleware.ts` — BEZ ZMIAN
-
-Middleware już poprawnie:
-- odświeża sesję
-- przekierowuje niezalogowanych na `/login`
-- przekierowuje zalogowanych z `/login` na `/dashboard`
-
-Upewnij się tylko że `/auth/callback` jest wykluczony z matchera w `src/middleware.ts` — dodaj `auth/callback` do listy ignorowanych ścieżek:
-
-```typescript
-// src/middleware.ts — zaktualizuj matcher:
-'/((?!_next/static|_next/image|favicon.ico|setup|api/setup|api/auth|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-```
-
----
-
-### 4. Czego NIE zmieniać
-
-- `src/lib/supabase/client.ts`, `server.ts`, `middleware.ts` — bez zmian
-- Wszystkie strony w `src/app/(app)/` — bez zmian
-- Style, Tailwind config — bez zmian
-- `next.config.mjs`, `tsconfig.json` — bez zmian
-- Zmienne środowiskowe w `.env.local` — Supabase URL już wskazuje na Auth Hub, bez zmian
-
----
-
-## Weryfikacja po implementacji
-
-1. `npm run build` musi przejść bez błędów TypeScript
-2. `npm run dev` — wejdź na `http://localhost:3000`
-3. Powinien pokazać się ekran logowania z przyciskiem Google (bez formularza email/hasło)
-4. Kliknięcie przycisku → Google → powrót na `/auth/callback` → whitelist check → `/dashboard`
-5. Email spoza whitelist → wylogowanie → `/login?error=unauthorized` → komunikat o braku dostępu
-
----
-
-## Uruchomienie Claude Code
-
-Sklonuj repo lokalnie, następnie:
+## Commands
 
 ```bash
-cd ewidencja-pojazdow
-npm install
+npm run dev          # development server (localhost:3000)
+npm run build        # production build + type check
+npm run typecheck    # tsc --noEmit only
+npm run lint         # eslint
+npm run test         # vitest run (unit tests)
+npm run test:watch   # vitest watch mode
+npm run supabase:types  # regenerate src/types/database.ts from live Supabase schema
 ```
 
-Wklej do Claude Code:
+Run a single test file: `npx vitest run src/lib/simulation/generate.test.ts`
+
+## Architecture
+
+**Stack:** Next.js 14 App Router · TypeScript · Tailwind CSS · Supabase (`@supabase/ssr`) · Zod · date-fns · Vitest
+
+**Deploy:** Netlify (`netlify.toml`) with `@netlify/plugin-nextjs` — auto-deploys from GitHub `main` to https://pojazdy.tsps.pl
+
+### Route structure
+
 ```
-Przeczytaj CLAUDE.md i zaimplementuj system logowania zgodnie ze specyfikacją.
-Kolejność: 1) zaktualizuj src/middleware.ts matcher, 2) utwórz src/app/auth/callback/route.ts,
-3) zastąp src/app/(auth)/login/page.tsx. Na końcu uruchom npm run build.
+src/app/
+  (auth)/login/         # login page (currently email/password, Google OAuth migration pending)
+  auth/callback/        # OAuth callback route (excluded from middleware matcher)
+  setup/                # one-time first-run setup
+  (app)/                # all protected pages (middleware guards this group)
+    dashboard/
+    wpisy/              # trip entries — list + new entry form
+    raporty/            # reports + PDF/CSV export
+    pojazdy/            # vehicle management
+    compliance/         # VAT-26 compliance tracking
+    symulacja/          # trip simulation
+    profil/             # user profile + simulation location config
+    admin/              # user management (administrator role only)
+  api/
+    vehicles/           # CRUD — GET all, POST create
+    trips/              # trip entry CRUD + odometer propagation RPCs
+    vat26/              # mark VAT-26 as filed
+    profiles/           # user profile CRUD
+    simulation/         # trip simulation API
+    loans/              # vehicle loans
+    places/             # location autocomplete
+    setup/              # first-run setup endpoint
 ```
+
+### Supabase — critical rules
+
+1. **Always use `.schema('vat_km')`** on every query — all app data lives in the `vat_km` schema, not `public`.
+2. **PostgREST FK ambiguity** — `trip_entries` has 3 FKs to `profiles` (`driver_id`, `created_by`, `confirmed_by`). Always use explicit alias: `driver:profiles!driver_id(full_name)` or PostgREST will throw "more than one relationship".
+3. **Odometer continuity trigger** — `vat_km.validate_odometer_continuity` fires on every `trip_entries` INSERT/UPDATE. Each entry's `odometer_before` must equal the previous entry's `odometer_after` for the same vehicle. Use the `vat_km.insert_trip_after()` and `vat_km.delete_trip_entry()` RPCs for mid-list insert/delete — they handle renumbering and delta propagation automatically.
+4. **Entry numbers** — use `vat_km.next_entry_number()` / `vat_km.next_n_entry_numbers(p_vehicle_id, p_count)` RPCs to allocate sequence numbers; never compute them manually.
+5. **Supabase clients:** `src/lib/supabase/server.ts` for Server Components and Route Handlers · `src/lib/supabase/client.ts` for Client Components · `src/lib/supabase/middleware.ts` for session refresh in middleware.
+
+### Multi-company (multi-tenant)
+
+The schema is multi-tenant via `company_id` FK present on `vehicles`, `profiles`, `v_monthly_summary`, `v_vat26_compliance`, and other views. The `vat_km.companies` table stores company master data. Vehicles are assigned to a company; users (profiles) also have a `company_id`. Reports and PDFs must use the company associated with the selected vehicle, not a global singleton.
+
+### Auth & roles
+
+Auth is Supabase Google OAuth. Callback at `/auth/callback/route.ts` exchanges code for session, checks `auth_hub.allowed_emails` whitelist, then redirects to `/dashboard` or `/login?error=unauthorized`.
+
+Roles (`UserRole`): `administrator | ksiegowosc | kierowca | kontrola`
+
+Role checks happen server-side by reading `vat_km.profiles` — never trust client-passed role. The `auth_hub` schema (shared across Toptech apps) is not exposed via PostgREST; use `src/lib/auth_hub.ts` helpers which call admin-client RPCs.
+
+### Data model summary
+
+- `companies` — company master (name, NIP, KRS, REGON, address)
+- `profiles` — one row per authenticated user; `company_id`, `role`, `role_assigned`, `is_active`
+- `vehicles` — `company_id` FK, odometer start, VAT-26 fields, status
+- `trip_entries` — core record; odometer chain enforced by DB trigger
+- `entry_sequences` — one row per vehicle; atomically tracks last allocated entry number
+- `v_monthly_summary` / `v_vat26_compliance` — DB views; query directly via `.from('v_...')`
+- `odometer_snapshots` — period-close snapshots
+- `audit_log` — insert-only; written by server on significant mutations
+
+### Types
+
+`src/types/database.ts` is the single source of truth for all TypeScript interfaces. Regenerate after any schema change with `npm run supabase:types`. Never hand-edit the generated block.
+
+### PDF export
+
+Reports (`raporty/`) and VAT-26 PDFs are generated client-side as HTML strings, opened in a new window, and printed via `window.print()`. No server-side PDF library. Company data (name, NIP, KRS, REGON, address) for the PDF header comes from the vehicle's associated company record.
+
+### Production data safety
+
+The production database at pojazdy.tsps.pl contains live company vehicle records. All schema migrations must be **additive only** (ADD COLUMN, CREATE TABLE, CREATE INDEX). Never use DROP, TRUNCATE, or DELETE in migrations without explicit user confirmation and a verified backup. Always state whether a proposed change is safe/additive before applying.

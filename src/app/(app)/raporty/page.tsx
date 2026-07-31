@@ -14,12 +14,12 @@ export default async function RaportyPage() {
     { data: vehicles },
     { data: profiles },
     { data: summaryAll },
-    { data: company },
   ] = await Promise.all([
-    supabase.schema('vat_km').from('vehicles').select('id, plate_number, make, model, status').order('plate_number'),
+    supabase.schema('vat_km').from('vehicles')
+      .select('id, plate_number, make, model, status, company:companies(name, nip, krs, regon, address)')
+      .order('plate_number'),
     supabase.schema('vat_km').from('profiles').select('id, full_name').eq('is_active', true).order('full_name'),
     supabase.schema('vat_km').from('v_monthly_summary').select('*'),
-    supabase.schema('vat_km').from('companies').select('name, nip').single(),
   ])
 
   // UWAGA: trip_entries ma 3 FK do profiles (driver_id, created_by, confirmed_by).
@@ -30,18 +30,27 @@ export default async function RaportyPage() {
     .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
     .order('entry_number', { ascending: true })
 
+  // Mapa vehicleId → dane firmy
+  const vehicleCompanies: Record<string, { name: string; nip: string; krs: string | null; regon: string | null; address: string | null }> = {}
+  for (const v of vehicles ?? []) {
+    if (v.company) {
+      vehicleCompanies[v.id] = v.company as unknown as { name: string; nip: string; krs: string | null; regon: string | null; address: string | null }
+    }
+  }
+
+  const vehiclesForClient = (vehicles ?? []).map(({ company: _c, ...v }) => v)
+
   return (
     <div className="flex flex-col h-full">
       <Topbar title="Zestawienia i eksport" />
       <RaportyClient
-        vehicles={vehicles ?? []}
+        vehicles={vehiclesForClient}
         profiles={profiles ?? []}
         trips={trips ?? []}
         summaryAll={summaryAll ?? []}
         ymCurrent={ymCurrent}
         ymPrevious={ymPrevious}
-        companyName={company?.name ?? undefined}
-        companyNip={company?.nip ?? undefined}
+        vehicleCompanies={vehicleCompanies}
       />
     </div>
   )

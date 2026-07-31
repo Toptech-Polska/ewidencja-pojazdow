@@ -42,6 +42,7 @@ export interface Company {
   id: string
   name: string
   nip: string
+  krs: string | null
   regon: string | null
   address: string | null
   created_at: string
@@ -249,6 +250,7 @@ export interface VehicleFormData {
   record_start_date: string
   odometer_start: number
   vat26_first_expense_date?: string
+  company_id?: string
 }
 
 export interface VehicleLoanFormData {

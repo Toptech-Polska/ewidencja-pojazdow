@@ -19,6 +19,8 @@ export const VehicleSchema = z.object({
     .nonnegative('Licznik nie może być ujemny'),
 
   vat26_first_expense_date: z.string().date().optional().or(z.literal('')),
+
+  company_id: z.string().uuid().optional(),
 })
 
 export type VehicleInput = z.infer<typeof VehicleSchema>

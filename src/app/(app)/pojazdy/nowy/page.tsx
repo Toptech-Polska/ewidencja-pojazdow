@@ -1,13 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
+import type { Company } from '@/types/database'
 
 export default function NowyPojazd() {
   const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState<string | null>(null)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [companyId, setCompanyId] = useState('')
+
+  useEffect(() => {
+    fetch('/api/companies')
+      .then(r => r.json())
+      .then((data: Company[]) => {
+        setCompanies(data)
+        if (data.length === 1) setCompanyId(data[0].id)
+      })
+      .catch(() => {})
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -24,6 +37,7 @@ export default function NowyPojazd() {
       odometer_start:           parseInt(formData.get('odometer_start') as string, 10),
       record_start_date:        formData.get('record_start_date') as string,
       vat26_first_expense_date: formData.get('vat26_first_expense_date') as string || undefined,
+      company_id:               companyId || undefined,
     }
 
     try {
@@ -117,6 +131,27 @@ export default function NowyPojazd() {
                 maxLength={17}
               />
             </div>
+
+            {/* Podmiot */}
+            {companies.length > 1 && (
+              <div>
+                <label htmlFor="company_id" className="form-label">
+                  Podmiot gospodarczy <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="company_id"
+                  value={companyId}
+                  onChange={e => setCompanyId(e.target.value)}
+                  required
+                  className="form-input"
+                >
+                  <option value="">— wybierz podmiot —</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} (NIP: {c.nip})</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Licznik / Data */}
             <div className="grid grid-cols-2 gap-4">

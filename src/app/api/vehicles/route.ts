@@ -53,11 +53,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nie masz uprawnień do dodawania pojazdów.' }, { status: 403 })
   }
 
+  const companyId = d.company_id ?? profile.company_id
+
   const { data, error } = await supabase
     .schema('vat_km')
     .from('vehicles')
     .insert({
-      company_id:                profile.company_id,
+      company_id:                companyId,
       plate_number:              d.plate_number.toUpperCase(),
       make:                      d.make,
       model:                     d.model,

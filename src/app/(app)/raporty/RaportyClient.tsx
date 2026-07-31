@@ -3,15 +3,22 @@
 import { useState, useMemo } from 'react'
 import type { MonthlySummaryRow } from '@/types/database'
 
+interface CompanyData {
+  name: string
+  nip: string
+  krs: string | null
+  regon: string | null
+  address: string | null
+}
+
 interface Props {
-  vehicles:    { id: string; plate_number: string; make: string; model: string; status: string }[]
-  profiles:    { id: string; full_name: string }[]
-  trips:       any[]
-  summaryAll:  MonthlySummaryRow[]
-  ymCurrent:   string
-  ymPrevious:  string
-  companyName?: string
-  companyNip?:  string
+  vehicles:         { id: string; plate_number: string; make: string; model: string; status: string }[]
+  profiles:         { id: string; full_name: string }[]
+  trips:            any[]
+  summaryAll:       MonthlySummaryRow[]
+  ymCurrent:        string
+  ymPrevious:       string
+  vehicleCompanies: Record<string, CompanyData>
 }
 
 function driverName(t: any): string {
@@ -32,7 +39,7 @@ function fmtOdo(v: number | null): string {
   return v == null ? '—' : `${v.toLocaleString('pl-PL')} km`
 }
 
-export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent, ymPrevious, companyName, companyNip }: Props) {
+export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent, ymPrevious, vehicleCompanies }: Props) {
   const [period, setPeriod]       = useState<'current' | 'previous' | 'custom'>('current')
   const [dateFrom, setDateFrom]   = useState(ymCurrent + '-01')
   const [dateTo, setDateTo]       = useState(ymCurrent + '-30')
@@ -123,6 +130,18 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
   function exportPdf() {
     const now = new Date().toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
     const period_label = periodLabel()
+
+    // Wyznacz firmę: jeśli wszystkie przefiltrowane pojazdy należą do tego samego podmiotu — pokaż go
+    const filteredVids = Array.from(new Set(filtered.map((t: any) => t.vehicle_id as string)))
+    const filteredNips = Array.from(new Set(filteredVids.map(vid => vehicleCompanies[vid]?.nip).filter((n): n is string => Boolean(n))))
+    const company: CompanyData | null = filteredNips.length === 1 ? (vehicleCompanies[filteredVids[0]] ?? null) : null
+
+    const companyHtml = company ? `
+      <strong>${company.name}</strong><br>
+      NIP: ${company.nip}${company.krs ? ` &middot; KRS: ${company.krs}` : ''}<br>
+      ${company.regon ? `REGON: ${company.regon}<br>` : ''}
+      ${company.address ? `${company.address}<br>` : ''}
+    ` : filteredNips.length > 1 ? '<span style="color:#888">Zestawienie zbiorcze (wiele podmiotów)</span>' : ''
 
     const vehicleSummaryRows = vehicles
       .map(v => ({ v, vTrips: filtered.filter((t: any) => t.vehicle_id === v.id) }))
@@ -219,8 +238,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
       <div class="legal-ref">Dokument sporządzony na potrzeby art. 86a ust. 4 pkt 1 ustawy z dnia 11 marca 2004 r. o podatku od towarów i usług</div>
     </div>
     <div class="header-right">
-      ${companyName ? `<strong>${companyName}</strong><br>` : ''}
-      ${companyNip  ? `NIP: ${companyNip}<br>` : ''}
+      ${companyHtml}
       Data wydruku: ${now}<br>
       Liczba wpisów: <strong>${filtered.length}</strong>
     </div>

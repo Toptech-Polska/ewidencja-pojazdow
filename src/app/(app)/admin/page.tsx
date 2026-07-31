@@ -4,7 +4,8 @@ import { fetchWhitelist, isCurrentUserGlobalAdmin } from '@/lib/auth_hub'
 import { Topbar } from '@/components/layout/Topbar'
 import { AdminUsersClient } from './AdminUsersClient'
 import { WhitelistManager } from './WhitelistManager'
-import type { UserRole, Profile } from '@/types/database'
+import { CompaniesManager } from './CompaniesManager'
+import type { UserRole, Profile, Company } from '@/types/database'
 
 const PERMS_MATRIX = [
   { action: 'Dodaj / edytuj własne wpisy',              administrator: 'tak', ksiegowosc: 'tak', kierowca: 'własne', kontrola: 'nie' },
@@ -52,6 +53,12 @@ export default async function AdminPage() {
     .order('role_assigned', { ascending: true })  // pendingi na górze
     .order('full_name')
 
+  const { data: companies } = await supabase
+    .schema('vat_km')
+    .from('companies')
+    .select('id, name, nip, krs, regon, address, created_at')
+    .order('name')
+
   // auth_hub jest niedostępny przez REST (schema not exposed) — fetch przez
   // helper, który używa admin klienta i sprawdza uprawnienia przez RPC.
   // Równoległe pobranie obu wartości.
@@ -65,6 +72,15 @@ export default async function AdminPage() {
       <Topbar title="Administracja — użytkownicy" />
 
       <div className="main-scroll p-5 space-y-4">
+        {/* Podmioty */}
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Podmioty gospodarcze</span>
+            <span className="badge badge-gray">{companies?.length ?? 0}</span>
+          </div>
+          <CompaniesManager companies={(companies ?? []) as Company[]} />
+        </div>
+
         {/* Whitelist (Auth Hub) */}
         <div className="card">
           <div className="card-head">
