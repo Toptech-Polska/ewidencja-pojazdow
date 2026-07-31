@@ -72,16 +72,30 @@ export default async function DashboardPage() {
 
   // ── Standardowy dashboard ───────────────────────────────────────────────────
 
+  // Fetch user's default vehicle (needed to scope the trip entries table)
+  let myDefaultVehicleId: string | null = null
+  if (user) {
+    const { data: profile } = await supabase
+      .schema('vat_km').from('profiles')
+      .select('default_vehicle_id').eq('id', user.id).single()
+    myDefaultVehicleId = profile?.default_vehicle_id ?? null
+  }
+
+  let tripsQuery = supabase.schema('vat_km').from('trip_entries')
+    .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
+    .order('entry_number', { ascending: false })
+    .limit(8)
+  if (myDefaultVehicleId) {
+    tripsQuery = tripsQuery.eq('vehicle_id', myDefaultVehicleId)
+  }
+
   const [
     { data: vehicles },
     { data: trips },
     { data: lastEntryRows },
   ] = await Promise.all([
     supabase.schema('vat_km').from('vehicles').select('*').order('created_at'),
-    supabase.schema('vat_km').from('trip_entries')
-      .select('*, vehicles(plate_number, make, model), driver:profiles!driver_id(full_name)')
-      .order('entry_number', { ascending: false })
-      .limit(8),
+    tripsQuery,
     supabase.schema('vat_km').from('trip_entries')
       .select('vehicle_id, trip_date')
       .order('trip_date', { ascending: false }),
@@ -94,6 +108,10 @@ export default async function DashboardPage() {
       lastEntryMap.set(row.vehicle_id, row.trip_date)
     }
   }
+
+  const myDefaultVehiclePlate = myDefaultVehicleId
+    ? ((vehicles ?? []).find(v => v.id === myDefaultVehicleId)?.plate_number ?? null)
+    : null
 
   const activeVehicles = (vehicles ?? []).filter(v => v.status === 'aktywny')
 
@@ -218,8 +236,15 @@ export default async function DashboardPage() {
         {/* Ostatnie wpisy */}
         <div className="card">
           <div className="card-head">
-            <span className="card-title">Ostatnie wpisy ewidencji</span>
-            <Link href="/wpisy" className="text-xs text-blue-600 hover:text-blue-800">Wszystkie →</Link>
+            <span className="card-title">
+              Ostatnie wpisy ewidencji{myDefaultVehiclePlate && ` — ${myDefaultVehiclePlate}`}
+            </span>
+            <Link
+              href={myDefaultVehicleId ? `/wpisy?vehicle=${myDefaultVehicleId}` : '/wpisy'}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              Wszystkie →
+            </Link>
           </div>
           <div className="overflow-x-auto">
             <table className="data-table min-w-max">
