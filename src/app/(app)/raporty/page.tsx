@@ -23,7 +23,7 @@ export default async function RaportyPage() {
     { data: summaryAll },
   ] = await Promise.all([
     supabase.schema('vat_km').from('vehicles')
-      .select('id, plate_number, make, model, status, company:companies(name, nip, krs, regon, address)')
+      .select('id, plate_number, make, model, status, company:companies!owner_company_id(name, nip, krs, regon, address)')
       .order('plate_number'),
     supabase.schema('vat_km').from('profiles').select('id, full_name').eq('is_active', true).order('full_name'),
     supabase.schema('vat_km').from('v_monthly_summary').select('*'),
