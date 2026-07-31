@@ -7,11 +7,11 @@ function Badge({ type, children }: { type: 'ok'|'warn'|'danger'|'info'|'gray', c
   return <span className={`badge badge-${type}`}>{children}</span>
 }
 
-function KpiCard({ label, value, sub, color }: { label: string; value: number | string; sub?: string; color?: string }) {
+function KpiCard({ label, value, sub, color, valueClassName }: { label: string; value: number | string; sub?: string; color?: string; valueClassName?: string }) {
   return (
     <div className="kpi-card">
       <p className="kpi-label">{label}</p>
-      <p className={`kpi-value ${color ?? ''}`}>{value}</p>
+      <p className={`kpi-value ${color ?? ''} ${valueClassName ?? ''}`}>{value}</p>
       {sub && <p className="kpi-sub">{sub}</p>}
     </div>
   )
@@ -109,19 +109,28 @@ export default async function DashboardPage() {
     }
   }
 
-  const myDefaultVehiclePlate = myDefaultVehicleId
-    ? ((vehicles ?? []).find(v => v.id === myDefaultVehicleId)?.plate_number ?? null)
+  const myVehicle = myDefaultVehicleId
+    ? ((vehicles ?? []).find(v => v.id === myDefaultVehicleId) ?? null)
     : null
+
+  const myDefaultVehiclePlate = myVehicle?.plate_number ?? null
+
+  // Most recent odometer: trips are ordered entry_number desc, so trips[0] is the latest
+  const myOdometer: number = trips?.[0]?.odometer_after ?? myVehicle?.odometer_start ?? 0
 
   const activeVehicles = (vehicles ?? []).filter(v => v.status === 'aktywny')
 
   const now = new Date()
   const ymCurrent = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const { data: monthlyData } = await supabase
+  let monthlyQuery = supabase
     .schema('vat_km')
     .from('v_monthly_summary')
     .select('total_km')
     .eq('year_month', ymCurrent)
+  if (myDefaultVehicleId) {
+    monthlyQuery = monthlyQuery.eq('vehicle_id', myDefaultVehicleId)
+  }
+  const { data: monthlyData } = await monthlyQuery
 
   const kmThisMonth = (monthlyData ?? []).reduce((s, r) => s + (r.total_km ?? 0), 0)
   const monthName = now.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
@@ -143,11 +152,20 @@ export default async function DashboardPage() {
       <div className="main-scroll p-5 space-y-4">
         {/* KPI */}
         <div className="grid grid-cols-2 gap-3">
-          <KpiCard
-            label="Aktywne pojazdy"
-            value={activeVehicles.length}
-            sub={`${(vehicles ?? []).length - activeVehicles.length} ewidencja zakończona`}
-          />
+          {myVehicle ? (
+            <KpiCard
+              label="Twój pojazd"
+              value={myVehicle.plate_number}
+              sub={`${myVehicle.make} ${myVehicle.model} · ${myOdometer.toLocaleString('pl-PL')} km`}
+              valueClassName="font-mono text-xl"
+            />
+          ) : (
+            <KpiCard
+              label="Aktywne pojazdy"
+              value={activeVehicles.length}
+              sub={`${(vehicles ?? []).length - activeVehicles.length} ewidencja zakończona`}
+            />
+          )}
           <KpiCard
             label="Km w tym miesiącu"
             value={kmThisMonth.toLocaleString('pl-PL')}
