@@ -20,7 +20,7 @@ Run a single test file: `npx vitest run src/lib/simulation/generate.test.ts`
 
 **Stack:** Next.js 14 App Router · TypeScript · Tailwind CSS · Supabase (`@supabase/ssr`) · Zod · date-fns · Vitest
 
-**Deploy:** Netlify (`netlify.toml`) with `@netlify/plugin-nextjs` — auto-deploys from GitHub `main` to https://pojazdy.tsps.pl
+**Deploy:** Vercel — auto-deploys from GitHub `main` to https://pojazdy.tsps.pl (repo contains `netlify.toml` but actual deployment is via Vercel)
 
 ### Route structure
 
