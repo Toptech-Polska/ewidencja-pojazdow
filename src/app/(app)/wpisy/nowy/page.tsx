@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Topbar } from '@/components/layout/Topbar'
 import { getLastOdometer } from '@/lib/trips/odometer'
 import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 import type { DbError } from '@/lib/errors/db-errors'
 import type { Vehicle, Profile, SimulationLocation } from '@/types/database'
 
@@ -163,7 +164,12 @@ function TripForm({
   const [error,  setError]              = useState<DbError | null>(null)
   const [errs,   setErrs]               = useState<Record<string, string>>({})
   const [createReturn, setCreateReturn] = useState(false)
-  const [confirmOpen, setConfirmOpen]   = useState(false)
+
+  const getVehicleLabel = (id: string) => {
+    const v = vehicles.find(veh => veh.id === id)
+    return v ? `${v.plate_number} — ${v.make} ${v.model}` : id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId, getVehicleLabel })
 
   const isInsertMode = !!insertAfterEntry
 
@@ -227,11 +233,7 @@ function TripForm({
 
   function handleSubmit() {
     if (!validate()) return
-    if (myDefaultVehicleId && f.vehicle_id !== myDefaultVehicleId) {
-      setConfirmOpen(true)
-      return
-    }
-    void doSubmit()
+    guard(f.vehicle_id, 'dodanie wpisu', doSubmit)
   }
 
   async function doSubmit() {
@@ -342,9 +344,6 @@ function TripForm({
       setSaving(false)
     }
   }
-
-  const selectedVehicle = vehicles.find(v => v.id === f.vehicle_id)
-  const defaultVehicle  = myDefaultVehicleId ? vehicles.find(v => v.id === myDefaultVehicleId) : null
 
   if (saved) return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
@@ -530,40 +529,15 @@ function TripForm({
         </button>
       </div>
 
-      {confirmOpen && selectedVehicle && defaultVehicle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
-            <div className="p-5 border-b border-slate-200">
-              <h3 className="text-sm font-semibold text-slate-800">Potwierdź wybór pojazdu</h3>
-            </div>
-            <div className="p-5 space-y-3">
-              <p className="text-sm text-slate-700">
-                Wybrany pojazd{' '}
-                <strong className="font-mono">{selectedVehicle.plate_number}</strong>{' '}
-                — {selectedVehicle.make} {selectedVehicle.model}{' '}
-                nie jest Twoim przypisanym autem{' '}
-                (<span className="font-mono font-semibold">{defaultVehicle.plate_number}</span>).
-              </p>
-              <p className="text-sm text-slate-500">Dodać wpis mimo to?</p>
-            </div>
-            <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
-              <button onClick={() => setConfirmOpen(false)} className="btn-outline">Anuluj</button>
-              <button
-                onClick={() => { setConfirmOpen(false); void doSubmit() }}
-                className="btn-primary"
-              >
-                Tak, dodaj wpis
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {GuardModal}
     </div>
   )
 }
 
 // ── LoanForm ───────────────────────────────────────────────────
-function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; profiles: Profile[]; currentUserId: string | null }) {
+function LoanForm({ vehicles, profiles, currentUserId, myDefaultVehicleId }: {
+  vehicles: Vehicle[]; profiles: Profile[]; currentUserId: string | null; myDefaultVehicleId: string | null
+}) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
@@ -585,6 +559,15 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.vehicle_id])
 
+  const getLoanVehicleLabel = (id: string) => {
+    const v = vehicles.find(veh => veh.id === id)
+    return v ? `${v.plate_number} — ${v.make} ${v.model}` : id
+  }
+  const { guard: loanGuard, GuardModal: LoanGuardModal } = useCrossVehicleGuard({
+    myDefaultVehicleId,
+    getVehicleLabel: getLoanVehicleLabel,
+  })
+
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)             e.vehicle_id        = 'Wybierz pojazd'
@@ -597,8 +580,7 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
     setErrs(e); return Object.keys(e).length === 0
   }
 
-  async function handleSubmit() {
-    if (!validate()) return
+  async function doLoanSave() {
     setSaving(true); setError(null)
     const effectiveName = f.loaned_to_type === 'internal'
       ? profiles.find(p => p.id === f.loaned_to_user_id)?.full_name ?? ''
@@ -619,6 +601,11 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
       setSaving(false); return
     }
     setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
+  }
+
+  function handleSubmit() {
+    if (!validate()) return
+    loanGuard(f.vehicle_id, 'pożyczka pojazdu', doLoanSave)
   }
 
   if (saved) return (
@@ -709,6 +696,7 @@ function LoanForm({ vehicles, profiles, currentUserId }: { vehicles: Vehicle[]; 
         <button onClick={() => router.back()} className="btn-outline">Anuluj</button>
         <button onClick={handleSubmit} disabled={saving} className="btn-primary">{saving ? 'Zapisywanie…' : 'Zapisz udostępnienie'}</button>
       </div>
+      {LoanGuardModal}
     </div>
   )
 }
@@ -794,7 +782,7 @@ function NowyWpisPageInner() {
               myDefaultVehicleId={myDefaultVehicleId}
             />
           ) : (
-            <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} />
+            <LoanForm vehicles={vehicles} profiles={profiles} currentUserId={currentUserId} myDefaultVehicleId={myDefaultVehicleId} />
           )}
         </div>
       </div>

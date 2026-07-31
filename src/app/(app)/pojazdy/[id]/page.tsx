@@ -28,6 +28,25 @@ export default async function PojazPage({ params }: Props) {
 
   if (error || !vehicle) notFound()
 
+  // Pobierz zalogowanego użytkownika i jego przypisany pojazd
+  const { data: { user } } = await supabase.auth.getUser()
+  let myDefaultVehicleId:    string | null = null
+  let myDefaultVehiclePlate: string | null = null
+  if (user) {
+    const { data: myProfile } = await supabase
+      .schema('vat_km').from('profiles')
+      .select('default_vehicle_id').eq('id', user.id).single()
+    myDefaultVehicleId = myProfile?.default_vehicle_id ?? null
+    if (myDefaultVehicleId && myDefaultVehicleId !== vehicle.id) {
+      const { data: dv } = await supabase
+        .schema('vat_km').from('vehicles')
+        .select('plate_number').eq('id', myDefaultVehicleId).single()
+      myDefaultVehiclePlate = dv?.plate_number ?? null
+    }
+  }
+
+  const showForeignBar = myDefaultVehicleId !== null && vehicle.id !== myDefaultVehicleId
+
   // Pobierz wpisy i statystyki równolegle
   const now = new Date()
   const ymCurrent = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -73,6 +92,12 @@ export default async function PojazPage({ params }: Props) {
         action={{ label: '+ Nowy wpis', href: `/wpisy/nowy?vehicle=${params.id}` }}
       />
 
+      {showForeignBar && (
+        <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 text-xs text-amber-800">
+          Ten pojazd jest przypisany do innego użytkownika. Operacje będą wymagały potwierdzenia i są rejestrowane.
+        </div>
+      )}
+
       <div className="main-scroll p-5 space-y-4">
 
         {/* ── Nagłówek pojazdu ─────────────────────────────── */}
@@ -95,6 +120,10 @@ export default async function PojazPage({ params }: Props) {
                   vehicleId={vehicle.id}
                   plateNumber={vehicle.plate_number}
                   odometerStart={vehicle.odometer_start}
+                  vehicleMake={vehicle.make}
+                  vehicleModel={vehicle.model}
+                  myDefaultVehicleId={myDefaultVehicleId}
+                  myDefaultVehiclePlate={myDefaultVehiclePlate}
                 />
               )}
             </div>
@@ -208,7 +237,14 @@ export default async function PojazPage({ params }: Props) {
                     </p>
                   </div>
                   {vehicle.status === 'aktywny' && (
-                    <FiledVat26Button vehicleId={vehicle.id} plateNumber={vehicle.plate_number} />
+                    <FiledVat26Button
+                      vehicleId={vehicle.id}
+                      plateNumber={vehicle.plate_number}
+                      vehicleMake={vehicle.make}
+                      vehicleModel={vehicle.model}
+                      myDefaultVehicleId={myDefaultVehicleId}
+                      myDefaultVehiclePlate={myDefaultVehiclePlate}
+                    />
                   )}
                 </div>
               )}

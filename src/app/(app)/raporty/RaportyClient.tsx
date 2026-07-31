@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { MonthlySummaryRow } from '@/types/database'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 
 interface CompanyData {
   name: string
@@ -46,6 +47,13 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
   const [dateTo, setDateTo]       = useState(ymCurrent + '-30')
   const [selVid, setSelVid]       = useState(defaultVehicleId ?? '')
   const [selDriver, setSelDriver] = useState('')
+
+  const myDefaultVehicleId = defaultVehicleId
+  const getVehicleLabel = (id: string) => {
+    const v = vehicles.find(veh => veh.id === id)
+    return v ? `${v.plate_number} — ${v.make} ${v.model}` : id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId, getVehicleLabel })
 
   const drivers = useMemo(() => [...new Set(trips.map((t: any) => driverName(t)).filter(d => d !== '—'))].sort(), [trips])
 
@@ -97,9 +105,50 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
   const uniqueVids    = [...new Set(filtered.map((t: any) => t.vehicle_id))].length
   const uniqueDrivers = [...new Set(filtered.map((t: any) => driverName(t)).filter(d => d !== '—'))].length
 
+  function firstForeignVehicleId(tripList: any[]): string | undefined {
+    if (!myDefaultVehicleId) return undefined
+    return (tripList.find((t: any) => t.vehicle_id !== myDefaultVehicleId) as any)?.vehicle_id
+  }
+
+  function handleSetSelVid(newVid: string) {
+    if (!myDefaultVehicleId) { setSelVid(newVid); return }
+    if (newVid !== '' && newVid !== myDefaultVehicleId) {
+      guard(newVid, 'filtr zestawienia', () => setSelVid(newVid))
+    } else if (newVid === '') {
+      const fv = firstForeignVehicleId(trips)
+      if (fv) {
+        guard(fv, 'widok wszystkich pojazdów', () => setSelVid(''))
+      } else {
+        setSelVid('')
+      }
+    } else {
+      setSelVid(newVid)
+    }
+  }
+
+  function handleClearFilters() {
+    if (!myDefaultVehicleId || selVid === '') { setSelVid(''); setSelDriver(''); return }
+    const fv = firstForeignVehicleId(trips)
+    if (fv) {
+      guard(fv, 'widok wszystkich pojazdów', () => { setSelVid(''); setSelDriver('') })
+    } else {
+      setSelVid(''); setSelDriver('')
+    }
+  }
+
+  function handleExportCsv() {
+    const fv = firstForeignVehicleId(filtered)
+    if (fv) { guard(fv, 'eksport zestawienia', exportCsv) } else { exportCsv() }
+  }
+
+  function handleExportPdf() {
+    const fv = firstForeignVehicleId(filtered)
+    if (fv) { guard(fv, 'eksport zestawienia', exportPdf) } else { exportPdf() }
+  }
+
   const activeChips = [
     { id: 'period', label: periodLabel(), removable: false },
-    selVid    && { id: 'veh',    label: vehicles.find(v => v.id === selVid)?.plate_number ?? '', removable: true, clear: () => setSelVid('') },
+    selVid    && { id: 'veh',    label: vehicles.find(v => v.id === selVid)?.plate_number ?? '', removable: true, clear: () => handleSetSelVid('') },
     selDriver && { id: 'driver', label: selDriver, removable: true, clear: () => setSelDriver('') },
   ].filter(Boolean) as { id: string; label: string; removable: boolean; clear?: () => void }[]
 
@@ -300,12 +349,13 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
 
   return (
     <div className="main-scroll p-5 space-y-4">
+      {GuardModal}
       <div className="card">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50">
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtry zestawienia</span>
           <div className="flex gap-2">
-            <button onClick={exportCsv} className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white hover:bg-slate-100 text-slate-600 font-medium">↓ CSV</button>
-            <button onClick={exportPdf} className="text-xs px-3 py-1.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 font-medium">↓ PDF (VAT-26)</button>
+            <button onClick={handleExportCsv} className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white hover:bg-slate-100 text-slate-600 font-medium">↓ CSV</button>
+            <button onClick={handleExportPdf} className="text-xs px-3 py-1.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 font-medium">↓ PDF (VAT-26)</button>
           </div>
         </div>
 
@@ -346,7 +396,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
 
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Pojazd</p>
-            <select value={selVid} onChange={e => setSelVid(e.target.value)}
+            <select value={selVid} onChange={e => handleSetSelVid(e.target.value)}
               className={`border rounded-lg px-3 py-2 text-sm bg-white min-w-48 ${selVid ? 'border-blue-400' : 'border-slate-200'}`}>
               <option value="">Wszystkie pojazdy</option>
               {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number} — {v.make}</option>)}
@@ -376,7 +426,7 @@ export function RaportyClient({ vehicles, profiles, trips, summaryAll, ymCurrent
             </span>
           ))}
           {(selVid || selDriver) && (
-            <button onClick={() => { setSelVid(''); setSelDriver('') }}
+            <button onClick={handleClearFilters}
               className="text-xs text-slate-400 hover:text-red-500 underline ml-1">Wyczyść filtry</button>
           )}
         </div>

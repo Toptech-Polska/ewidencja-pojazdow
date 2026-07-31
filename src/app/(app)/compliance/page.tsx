@@ -19,11 +19,32 @@ const getCfg = (status: string | null | undefined) => STATUS_CONFIG[status ?? ''
 export default async function CompliancePage() {
   const supabase = await createClient()
 
-  const { data: compliance } = await supabase
-    .schema('vat_km')
-    .from('v_vat26_compliance')
-    .select('*')
-    .order('vat26_deadline', { ascending: true, nullsFirst: false })
+  const [{ data: compliance }, { data: { user } }] = await Promise.all([
+    supabase
+      .schema('vat_km')
+      .from('v_vat26_compliance')
+      .select('*')
+      .order('vat26_deadline', { ascending: true, nullsFirst: false }),
+    supabase.auth.getUser(),
+  ])
+
+  let myDefaultVehicleId:    string | null = null
+  let myDefaultVehiclePlate: string | null = null
+  if (user) {
+    const { data: myProfile } = await supabase
+      .schema('vat_km').from('profiles').select('default_vehicle_id').eq('id', user.id).single()
+    myDefaultVehicleId = myProfile?.default_vehicle_id ?? null
+    if (myDefaultVehicleId) {
+      const inCompliance = (compliance ?? []).find(c => c.id === myDefaultVehicleId)
+      if (inCompliance) {
+        myDefaultVehiclePlate = inCompliance.plate_number
+      } else {
+        const { data: dv } = await supabase
+          .schema('vat_km').from('vehicles').select('plate_number').eq('id', myDefaultVehicleId).single()
+        myDefaultVehiclePlate = dv?.plate_number ?? null
+      }
+    }
+  }
 
   const alerts = (compliance ?? []).filter(c =>
     ['overdue', 'urgent', 'pending', 'no_expense_date'].includes(c.vat26_status ?? '')
@@ -74,6 +95,10 @@ export default async function CompliancePage() {
                       <FiledVat26Button
                         vehicleId={c.id}
                         plateNumber={c.plate_number}
+                        vehicleMake={c.make ?? ''}
+                        vehicleModel={c.model ?? ''}
+                        myDefaultVehicleId={myDefaultVehicleId}
+                        myDefaultVehiclePlate={myDefaultVehiclePlate}
                       />
                     </div>
                   </div>

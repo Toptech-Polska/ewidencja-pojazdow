@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { Vehicle } from '@/types/database'
 import type { SimulatedTrip } from '@/lib/simulation/types'
 import { ApiErrorMessage } from '@/components/ui/ApiErrorMessage'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 import type { DbError } from '@/lib/errors/db-errors'
 
 interface Props { vehicles: Vehicle[]; defaultVehicleId: string | null }
@@ -169,6 +170,12 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
   const vLabel = vehicles.find(v => v.id === f.vehicle_id)
   const vehicleLabel = vLabel ? `${vLabel.plate_number} - ${vLabel.make} ${vLabel.model}` : ''
 
+  const getVehicleLabel = (id: string) => {
+    const v = vehicles.find(veh => veh.id === id)
+    return v ? `${v.plate_number} — ${v.make} ${v.model}` : id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId: defaultVehicleId, getVehicleLabel })
+
   function validate() {
     const e: Record<string, string> = {}
     if (!f.vehicle_id)            e.vehicle_id       = 'Wybierz pojazd'
@@ -180,15 +187,13 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
     setErrs(e); return Object.keys(e).length === 0
   }
 
-  async function handlePreview() {
-    if (!validate()) return
+  async function doPreview() {
     setLoading(true); setError(null)
     try {
       const payload = { vehicle_id: f.vehicle_id, startDate: f.startDate, endDate: f.endDate, currentOdometer: parseInt(f.currentOdometer, 10) }
       const res = await fetch('/api/simulation/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const data = await res.json()
       if (!res.ok) {
-        // odometer_too_low is a special validation error — show as form error
         if (data.code === 'odometer_too_low') {
           setErrs(prev => ({ ...prev, currentOdometer: data.message }))
         } else {
@@ -203,7 +208,12 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
     setLoading(false)
   }
 
-  async function handleSave() {
+  function handlePreview() {
+    if (!validate()) return
+    guard(f.vehicle_id, 'symulacja — podgląd', doPreview)
+  }
+
+  async function doSave() {
     setSaving(true); setError(null)
     try {
       const res = await fetch('/api/simulation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vehicle_id: f.vehicle_id, trips: trips.map(({ _id, ...t }) => t) }) })
@@ -214,7 +224,12 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
     setSaving(false)
   }
 
+  function handleSave() {
+    guard(f.vehicle_id, 'symulacja — zapis', doSave)
+  }
+
   if (step === 'success' && result) return (
+    <>
     <div className="p-5 space-y-4">
       <div className="flex flex-col items-center gap-3 py-8">
         <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-2xl">&#x2713;</div>
@@ -226,10 +241,15 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
         <button onClick={() => router.push('/wpisy')} className="btn-primary">Przejdz do ewidencji</button>
       </div>
     </div>
+    {GuardModal}
+    </>
   )
 
   if (step === 'preview') return (
-    <PreviewStep trips={trips} vehicleLabel={vehicleLabel} targetKm={targetKm} onChange={setTrips} onSave={handleSave} onBack={() => setStep('form')} saving={saving} error={error} />
+    <>
+      <PreviewStep trips={trips} vehicleLabel={vehicleLabel} targetKm={targetKm} onChange={setTrips} onSave={handleSave} onBack={() => setStep('form')} saving={saving} error={error} />
+      {GuardModal}
+    </>
   )
 
   return (
@@ -283,6 +303,7 @@ export function SimulacjaForm({ vehicles, defaultVehicleId }: Props) {
           {loading ? 'Generowanie...' : 'Generuj podglad'}
         </button>
       </div>
+      {GuardModal}
     </div>
   )
 }

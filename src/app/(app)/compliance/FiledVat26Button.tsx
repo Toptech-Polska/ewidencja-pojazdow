@@ -2,13 +2,21 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 
 interface Props {
-  vehicleId:   string
-  plateNumber: string
+  vehicleId:             string
+  plateNumber:           string
+  vehicleMake:           string
+  vehicleModel:          string
+  myDefaultVehicleId:    string | null
+  myDefaultVehiclePlate: string | null
 }
 
-export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
+export function FiledVat26Button({
+  vehicleId, plateNumber, vehicleMake, vehicleModel,
+  myDefaultVehicleId, myDefaultVehiclePlate,
+}: Props) {
   const router = useRouter()
   const [open,    setOpen]    = useState(false)
   const [date,    setDate]    = useState(new Date().toISOString().slice(0, 10))
@@ -16,8 +24,13 @@ export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
-  async function handleSubmit() {
-    if (!date) { setError('Podaj datę złożenia'); return }
+  const getVehicleLabel = (id: string) => {
+    if (id === vehicleId) return `${plateNumber} — ${vehicleMake} ${vehicleModel}`
+    return myDefaultVehiclePlate ?? id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId, getVehicleLabel })
+
+  async function doSubmit() {
     setSaving(true)
     setError(null)
 
@@ -42,9 +55,14 @@ export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
     router.refresh()
   }
 
+  function handleSubmit() {
+    if (!date) { setError('Podaj datę złożenia'); return }
+    setError(null)
+    guard(vehicleId, 'zmiana VAT-26', doSubmit)
+  }
+
   return (
     <>
-      {/* Przycisk otwierający modal */}
       <button
         onClick={() => setOpen(true)}
         className="inline-flex items-center px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-lg hover:bg-blue-800 transition-colors"
@@ -52,14 +70,12 @@ export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
         ✓ Oznacz jako złożony
       </button>
 
-      {/* Modal */}
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           onClick={e => { if (e.target === e.currentTarget) setOpen(false) }}
         >
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            {/* Nagłówek */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Złożenie VAT-26</p>
@@ -73,7 +89,6 @@ export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
               </button>
             </div>
 
-            {/* Treść */}
             <div className="p-5 space-y-4">
               <div>
                 <label className="form-label">
@@ -112,26 +127,17 @@ export function FiledVat26Button({ vehicleId, plateNumber }: Props) {
               )}
             </div>
 
-            {/* Stopka */}
             <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-              <button
-                onClick={() => setOpen(false)}
-                className="btn-outline"
-                disabled={saving}
-              >
-                Anuluj
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={saving || !date}
-                className="btn-primary"
-              >
+              <button onClick={() => setOpen(false)} className="btn-outline" disabled={saving}>Anuluj</button>
+              <button onClick={handleSubmit} disabled={saving || !date} className="btn-primary">
                 {saving ? 'Zapisywanie…' : 'Zapisz'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {GuardModal}
     </>
   )
 }

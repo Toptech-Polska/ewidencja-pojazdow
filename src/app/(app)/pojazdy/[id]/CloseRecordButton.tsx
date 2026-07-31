@@ -2,14 +2,23 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 
 interface Props {
-  vehicleId:     string
-  plateNumber:   string
-  odometerStart: number
+  vehicleId:             string
+  plateNumber:           string
+  odometerStart:         number
+  vehicleMake:           string
+  vehicleModel:          string
+  myDefaultVehicleId:    string | null
+  myDefaultVehiclePlate: string | null
 }
 
-export function CloseRecordButton({ vehicleId, plateNumber, odometerStart }: Props) {
+export function CloseRecordButton({
+  vehicleId, plateNumber, odometerStart,
+  vehicleMake, vehicleModel,
+  myDefaultVehicleId, myDefaultVehiclePlate,
+}: Props) {
   const router = useRouter()
   const [open,   setOpen]   = useState(false)
   const [date,   setDate]   = useState(new Date().toISOString().slice(0, 10))
@@ -18,20 +27,20 @@ export function CloseRecordButton({ vehicleId, plateNumber, odometerStart }: Pro
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState<string | null>(null)
 
-  async function handleSubmit() {
-    if (!date || !odo) { setError('Uzupełnij wszystkie pola'); return }
-    const odoNum = parseInt(odo, 10)
-    if (odoNum < odometerStart) {
-      setError('Licznik końcowy nie może być mniejszy niż startowy')
-      return
-    }
+  const getVehicleLabel = (id: string) => {
+    if (id === vehicleId) return `${plateNumber} — ${vehicleMake} ${vehicleModel}`
+    return myDefaultVehiclePlate ?? id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId, getVehicleLabel })
+
+  async function doSubmit() {
     setSaving(true)
     setError(null)
 
     const res = await fetch(`/api/vehicles/${vehicleId}/close`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record_end_date: date, odometer_end: odoNum, status: reason }),
+      body: JSON.stringify({ record_end_date: date, odometer_end: parseInt(odo, 10), status: reason }),
     })
 
     if (!res.ok) {
@@ -42,6 +51,17 @@ export function CloseRecordButton({ vehicleId, plateNumber, odometerStart }: Pro
     }
     setOpen(false)
     router.refresh()
+  }
+
+  function handleSubmit() {
+    if (!date || !odo) { setError('Uzupełnij wszystkie pola'); return }
+    const odoNum = parseInt(odo, 10)
+    if (odoNum < odometerStart) {
+      setError('Licznik końcowy nie może być mniejszy niż startowy')
+      return
+    }
+    setError(null)
+    guard(vehicleId, 'zamknięcie ewidencji', doSubmit)
   }
 
   return (
@@ -107,6 +127,8 @@ export function CloseRecordButton({ vehicleId, plateNumber, odometerStart }: Pro
           </div>
         </div>
       )}
+
+      {GuardModal}
     </>
   )
 }

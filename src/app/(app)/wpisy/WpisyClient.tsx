@@ -3,14 +3,16 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useCrossVehicleGuard } from '@/components/ui/CrossVehicleGuard'
 
 const TODAY = new Date().toISOString().slice(0, 10)
 
 interface Props {
-  vehicles:       any[]
-  trips:          any[]
-  initialFilter:  'all' | 'pending'
-  initialVehicle: string
+  vehicles:             any[]
+  trips:                any[]
+  initialFilter:        'all' | 'pending'
+  initialVehicle:       string
+  myDefaultVehicleId:   string | null
 }
 
 interface EditDraft {
@@ -21,7 +23,7 @@ interface EditDraft {
   kilometers: string
 }
 
-export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, initialVehicle }: Props) {
+export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, initialVehicle, myDefaultVehicleId }: Props) {
   const router = useRouter()
   const [trips, setTrips]           = useState(initialTrips)
   const [filter, setFilter]         = useState<'all' | 'pending'>(initialFilter)
@@ -39,6 +41,12 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
   // ── Delete state ──────────────────────────────────────────────
   const [deleteTrip,     setDeleteTrip]     = useState<any | null>(null)
   const [deleteDeleting, setDeleteDeleting] = useState(false)
+
+  const getVehicleLabel = (id: string) => {
+    const v = vehicles.find((v: any) => v.id === id)
+    return v ? `${v.plate_number} — ${v.make} ${v.model}` : id
+  }
+  const { guard, GuardModal } = useCrossVehicleGuard({ myDefaultVehicleId, getVehicleLabel })
 
   const pending = trips.filter(t => t.requires_confirmation && !t.confirmed_by_company)
   const selV    = vehicles.find(v => v.id === selVid)
@@ -163,6 +171,8 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
 
   return (
     <div className="main-scroll p-5">
+
+      {GuardModal}
 
       {/* ── Delete confirm modal ─────────────────────────────── */}
       {deleteTrip && (
@@ -319,7 +329,9 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                         <div className="flex flex-col gap-1">
                           {editError && <p className="text-xs text-red-600 max-w-[200px]">{editError}</p>}
                           <div className="flex gap-1">
-                            <button onClick={saveEdit} disabled={editSaving}
+                            <button
+                              onClick={() => guard(t.vehicle_id, 'edycja wpisu', saveEdit)}
+                              disabled={editSaving}
                               className="px-2 py-1 bg-blue-700 text-white text-xs rounded font-medium disabled:opacity-50">
                               {editSaving ? '…' : 'Zapisz'}
                             </button>
@@ -369,7 +381,9 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                     <td>
                       <div className="flex gap-1 flex-wrap items-center">
                         {needsConfirm && (
-                          <button onClick={() => confirmTrip(t.id)} disabled={confirming === t.id}
+                          <button
+                            onClick={() => guard(t.vehicle_id, 'potwierdzenie wpisu', () => void confirmTrip(t.id))}
+                            disabled={confirming === t.id}
                             className="px-2 py-1 bg-green-50 text-green-700 border border-green-200 rounded text-xs font-medium hover:bg-green-100 whitespace-nowrap disabled:opacity-50">
                             {confirming === t.id ? '…' : '✓ Zatwierdź'}
                           </button>
@@ -385,7 +399,7 @@ export function WpisyClient({ vehicles, trips: initialTrips, initialFilter, init
                           className="px-2 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded text-xs font-medium hover:bg-slate-100 whitespace-nowrap">
                           Edytuj
                         </button>
-                        <button onClick={() => setDeleteTrip(t)}
+                        <button onClick={() => guard(t.vehicle_id, 'usunięcie wpisu', () => setDeleteTrip(t))}
                           className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded text-xs font-medium hover:bg-red-100 whitespace-nowrap">
                           Usuń
                         </button>
