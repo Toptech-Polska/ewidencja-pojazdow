@@ -139,8 +139,8 @@ function buildReturnEntry(orig: {
     route_to:             orig.route_from,
     odometer_before:      orig.odometer_after,
     odometer_after:       orig.odometer_after + km,
-    driver_id:            orig.driver_id ?? null,
-    driver_name_external: orig.driver_name_external ?? null,
+    driver_id:            orig.driver_id ?? undefined,
+    driver_name_external: orig.driver_name_external ?? undefined,
   }
 }
 
@@ -282,7 +282,7 @@ function TripForm({
             const retErr = await retRes.json()
             setSaveMsg(`Zapisano wyjazd, ale nie udało się utworzyć powrotu: ${retErr.message ?? retErr.error ?? 'nieznany błąd'}. Dodaj powrót ręcznie.`)
             setSaved(true)
-            setTimeout(() => router.push('/wpisy'), 4000)
+            setTimeout(() => router.push(`/wpisy?vehicle=${f.vehicle_id}`), 4000)
             return
           }
           setSaveMsg('Zapisano 2 wpisy (wyjazd i powrót).')
@@ -290,7 +290,7 @@ function TripForm({
           setSaveMsg('Wpis zapisany pomyślnie.')
         }
         setSaved(true)
-        setTimeout(() => router.push('/wpisy'), 1500)
+        setTimeout(() => router.push(`/wpisy?vehicle=${f.vehicle_id}`), 1500)
         return
       }
 
@@ -330,7 +330,7 @@ function TripForm({
           const retErr = await retRes.json()
           setSaveMsg(`Zapisano wyjazd, ale nie udało się utworzyć powrotu: ${retErr.message ?? retErr.error ?? 'nieznany błąd'}. Dodaj powrót ręcznie.`)
           setSaved(true)
-          setTimeout(() => router.push('/wpisy'), 4000)
+          setTimeout(() => router.push(`/wpisy?vehicle=${f.vehicle_id}`), 4000)
           return
         }
         setSaveMsg('Zapisano 2 wpisy (wyjazd i powrót).')
@@ -338,7 +338,7 @@ function TripForm({
         setSaveMsg('Wpis zapisany pomyślnie.')
       }
       setSaved(true)
-      setTimeout(() => router.push('/wpisy'), 1500)
+      setTimeout(() => router.push(`/wpisy?vehicle=${f.vehicle_id}`), 1500)
     } catch {
       setError({ code: 'db_error', message: 'Błąd połączenia z serwerem', hint: '' })
       setSaving(false)
@@ -600,7 +600,7 @@ function LoanForm({ vehicles, profiles, currentUserId, myDefaultVehicleId }: {
       setError(d.code ? d : { code: 'db_error', message: d.error ?? 'Błąd zapisu', hint: '' })
       setSaving(false); return
     }
-    setSaved(true); setTimeout(() => router.push('/wpisy'), 1200)
+    setSaved(true); setTimeout(() => router.push(`/wpisy?vehicle=${f.vehicle_id}`), 1200)
   }
 
   function handleSubmit() {

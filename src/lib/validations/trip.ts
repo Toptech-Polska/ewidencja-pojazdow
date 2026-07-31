@@ -29,8 +29,8 @@ export const TripEntrySchema = z.object({
     .int('Licznik musi być liczbą całkowitą')
     .positive('Licznik musi być liczbą dodatnią'),
 
-  driver_id: z.string().uuid().optional().or(z.literal('')),
-  driver_name_external: z.string().max(200).optional(),
+  driver_id: z.string().uuid().nullish().or(z.literal('')),
+  driver_name_external: z.string().max(200).nullish(),
   notes: z.string().max(1000).optional(),
 })
 .refine(
